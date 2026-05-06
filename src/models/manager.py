@@ -12,8 +12,9 @@ from pydantic import BaseModel, ValidationError
 
 from .prompts import PromptManager
 from .providers.base import ChatRequest, ModelResponse, ModelError, ModelTimeout
-from .providers.ollama import OllamaProvider  
+from .providers.ollama import OllamaProvider
 from .providers.openai_sdk import OpenAIProvider
+from .providers.groq_provider import GroqProvider
 from .services.marker import MarkerService
 
 logger = logging.getLogger(__name__)
@@ -105,6 +106,8 @@ class ModelManager:
             provider = OllamaProvider(**settings)
         elif provider_type == "openai":
             provider = OpenAIProvider(**settings)
+        elif provider_type == "groq":
+            provider = GroqProvider(**settings)
         else:
             raise ValueError(f"Unknown provider type: {provider_type}")
         self._providers[provider_name] = provider

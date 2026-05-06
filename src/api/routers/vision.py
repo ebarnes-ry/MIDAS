@@ -4,7 +4,11 @@ Vision pipeline API endpoints.
 import base64
 import io
 import time
-from fastapi import APIRouter, UploadFile, File, Depends, HTTPException, Path
+from fastapi import APIRouter, UploadFile, File, Depends, HTTPException, Path, Request
+from slowapi import Limiter
+from slowapi.util import get_remote_address
+
+limiter = Limiter(key_func=get_remote_address)
 from PIL import Image
 from bs4 import BeautifulSoup
 from typing import Optional
@@ -224,17 +228,18 @@ async def upload_document(file: UploadFile = File(...), session_manager: Session
 
 
 @router.post("/complete")
-async def complete_pipeline(request: UserSelectionRequest, session_manager: SessionManager = Depends(get_session_manager), model_manager: ModelManager = Depends(get_model_manager)):
+@limiter.limit("3/minute;15/hour")
+async def complete_pipeline(request: Request, body: UserSelectionRequest, session_manager: SessionManager = Depends(get_session_manager), model_manager: ModelManager = Depends(get_model_manager)):
     full_start_time = time.time()
-    session = session_manager.get_session(request.document_id)
+    session = session_manager.get_session(body.document_id)
     if not session:
         raise HTTPException(status_code=404, detail="Document not found or session expired")
 
     try:
         vision_start_time = time.time()
         user_selection = UserSelection(
-            problem_id=request.problem_id,
-            edited_latex=request.edited_latex,
+            problem_id=body.problem_id,
+            edited_latex=body.edited_latex,
             original_image_path=""
         )
         image_data = base64.b64decode(session.original_image_base64)

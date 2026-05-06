@@ -37,12 +37,18 @@ class VerificationOrchestrator:
         self.reasoning_pipeline = ReasoningPipeline(model_manager)
         log_path = model_manager.config.get("trajectory_log_path", "trajectories/midas_trajectories.jsonl")
         self.logger = TrajectoryLogger(log_path=log_path)
+        demo = model_manager.config.get("demo", {})
+        self._max_repair_attempts = demo.get("max_repair_attempts", 2)
+        self._max_tokens_per_request = demo.get("max_tokens_per_request", None)
 
     def verify_with_repair(
         self,
         reasoning_output: ReasoningOutput,
-        max_reasoning_attempts: int = 2,
+        max_reasoning_attempts: int | None = None,
     ) -> Tuple[VerificationResult, List[RepairAttempt]]:
+        # demo config caps override the call-site default
+        if max_reasoning_attempts is None:
+            max_reasoning_attempts = self._max_repair_attempts
         repair_history: List[RepairAttempt] = []
         current_reasoning = reasoning_output
         verification_result: Optional[VerificationResult] = None

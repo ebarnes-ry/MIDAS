@@ -3,6 +3,17 @@ from typing import Dict, Any, List, Optional
 from src.models.manager import ModelManager
 from .types import ReasoningInput, ReasoningOutput, ReasoningStep
 
+# Matches <think>, <Think>, <thinking>, <Thinking>, <Thought>, <thought>
+# DeepSeek-R1 variants use different tag names depending on the distillation.
+_THINK_RE = re.compile(
+    r'<([Tt]hink(?:ing)?|[Tt]hought)>(.*?)</\1>',
+    re.DOTALL,
+)
+_STRIP_THINK_RE = re.compile(
+    r'<[Tt]hink(?:ing)?>.*?</[Tt]hink(?:ing)?>|<[Tt]hought>.*?</[Tt]hought>',
+    re.DOTALL,
+)
+
 
 class ReasoningPipeline:
     def __init__(self, manager: ModelManager):
@@ -31,8 +42,8 @@ class ReasoningPipeline:
         original_problem: str,
         response: Any
     ) -> ReasoningOutput:
-        think_match = re.search(r'<think>(.*?)</think>', content, re.DOTALL)
-        think_content = think_match.group(1).strip() if think_match else ""
+        think_match = _THINK_RE.search(content)
+        think_content = think_match.group(2).strip() if think_match else ""
 
         solution_match = re.search(r'<solution>(.*?)</solution>', content, re.DOTALL)
         if not solution_match:
@@ -84,9 +95,9 @@ class ReasoningPipeline:
         )
 
     def _fallback_parse(self, content: str, original_problem: str, response: Any) -> ReasoningOutput:
-        think_match = re.search(r'<think>(.*?)</think>', content, re.DOTALL)
-        think_content = think_match.group(1).strip() if think_match else ""
-        worked = re.sub(r'<think>.*?</think>', '', content, flags=re.DOTALL).strip()
+        think_match = _THINK_RE.search(content)
+        think_content = think_match.group(2).strip() if think_match else ""
+        worked = _STRIP_THINK_RE.sub('', content).strip()
 
         return ReasoningOutput(
             original_problem=original_problem,

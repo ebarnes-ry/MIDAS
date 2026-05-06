@@ -1,16 +1,21 @@
 trajectory_log_path: "trajectories/midas_trajectories.jsonl"
 
+# Caps applied in demo/production to prevent runaway Groq costs.
+demo:
+  max_tokens_per_request: 3000
+  max_repair_attempts: 2
+
 providers:
+  groq:
+    type: groq
+    settings: {}          # API key loaded from GROQ_API_KEY env var
+
   ollama_local:
     settings:
       host: http://localhost:11434
       request_timeout_s: 300
     type: ollama
-  openrouter:
-    settings:
-      base_url: https://openrouter.ai/api/v1
-      default_headers: null
-    type: openai
+
 services:
   marker:
     settings:
@@ -19,70 +24,75 @@ services:
       force_ocr: true
       redo_inline_math: true
       strip_existing_ocr: true
-      disable_image_extraction: true #marker describes with llm instead of extracts figures
-      debug: true 
+      disable_image_extraction: true
+      debug: true
       llm_service: gemini
       gemini:
-        api_key: "AIzaSyAhOBn-pik-HO-jTvqLZ9oSshwBAp1duDg" 
+        api_key: "AIzaSyAhOBn-pik-HO-jTvqLZ9oSshwBAp1duDg"
         model: "gemini-1.5-flash"
-        #max_tokens: 4000
-        #temperature: 0.1
     type: marker
+
 tasks:
+  # ── Groq tasks (fast cloud inference) ─────────────────────────────────────
+  reasoning:
+    provider: groq
+    model: deepseek-r1-distill-llama-70b
+    params:
+      temperature: 0.6
+      max_tokens: 4096
+    prompt_ref: reasoning/solve@v2
+    timeout: 60
+
+  reasoning_repair:
+    provider: groq
+    model: deepseek-r1-distill-llama-70b
+    params:
+      temperature: 0.6
+      max_tokens: 4096
+    prompt_ref: reasoning/repair@v1
+    timeout: 60
+
+  verification:
+    provider: groq
+    model: llama-3.3-70b-versatile
+    params:
+      temperature: 0.1
+      max_tokens: 2048
+    prompt_ref: codegen/baseline_codegen@v6
+    timeout: 60
+    max_repair_attempts: 3
+    confidence_threshold: 0.95
+    min_acceptable_confidence: 0.7
+    repair_temperature: 0.2
+    execution_timeout: 30
+    memory_limit_mb: 512
+
+  explain_step:
+    provider: groq
+    model: llama-3.3-70b-versatile
+    params:
+      temperature: 0.3
+      max_tokens: 800
+    prompt_ref: reasoning/explain_step@v1
+    timeout: 30
+
+  # ── Ollama tasks (local, vision-capable models) ────────────────────────────
   group_problems:
     provider: ollama_local
-    model: qwen3:8b # Use a strong model for this critical task
+    model: qwen3:8b
     params:
       temperature: 0.1
       max_tokens: 4096
     prompt_ref: vision/group_problems@v3
 
-  reasoning:
-    model: phi4-mini-reasoning:latest
-    params:
-      repeat_penalty: 1.1
-      seed: 42
-      temperature: 0.1
-      top_p: 0.95
-    prompt_ref: reasoning/solve@v2
-    provider: ollama_local
-    timeout: 300
-
-  reasoning_repair:
-    provider: ollama_local
-    model: phi4-mini-reasoning:latest # Or whichever model you use for reasoning
-    params:
-      temperature: 0.2 # Slightly higher temp for creative fixes
-      top_p: 0.95
-    prompt_ref: reasoning/repair@v1
-
-  verification:
-    model: qwen2.5-coder:7b-instruct
-    params:
-      seed: 42
-      temperature: 0.1
-      top_p: 0.95
-      max_tokens: 2000
-    prompt_ref: codegen/baseline_codegen@v6
-    provider: ollama_local
-    timeout: 300
-    # Verification-specific settings
-    max_repair_attempts: 3
-    confidence_threshold: 0.95
-    min_acceptable_confidence: 0.7
-    repair_temperature: 0.2
-    execution_timeout: 300
-    memory_limit_mb: 512
-
   vision:
+    provider: ollama_local
     model: qwen2.5vl:7b
     params:
       max_tokens: 1000
-      seed:
       temperature: 0.1
       top_p: 0.95
     prompt_ref: vision/analyze@v1
-    provider: ollama_local
 
   validation:
     provider: ollama_local
@@ -91,21 +101,11 @@ tasks:
       temperature: 0.1
       max_tokens: 150
     prompt_ref: vision/validate@v1
-  # In src/config/config.yaml, under the 'tasks' section:
 
   json_repair:
     provider: ollama_local
-    model: qwen2.5vl:7b # Use a fast model for this
+    model: qwen2.5vl:7b
     params:
       temperature: 0.1
-      max_tokens: 2000 # Must be large enough to contain the broken JSON
+      max_tokens: 2000
     prompt_ref: vision/repair_json@v1
-  # In src/config/config.yaml, under the 'tasks' section:
-
-  explain_step:
-    provider: ollama_local
-    model: qwen3:8b
-    params:
-      temperature: 0.1
-      max_tokens: 800
-    prompt_ref: reasoning/explain_step@v1

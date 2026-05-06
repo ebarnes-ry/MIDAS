@@ -303,5 +303,7 @@ websockets==15.0.1
     #   google-genai
     #   uvicorn
 
+slowapi==0.1.9
+
 # The following packages are considered to be unsafe in a requirements file:
 # setuptools

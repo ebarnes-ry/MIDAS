@@ -19,6 +19,7 @@ tenacity
 fastapi
 uvicorn[standard]
 python-multipart
+slowapi
 
 # TESTING
 pytest

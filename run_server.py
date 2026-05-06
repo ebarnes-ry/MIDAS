@@ -7,6 +7,9 @@ For production, you'd use a proper ASGI server deployment.
 """
 
 import os
+from dotenv import load_dotenv
+load_dotenv()  # loads GROQ_API_KEY and any other vars from .env
+
 import certifi
 
 # On macOS, Python venvs don't inherit the system keychain, so external HTTPS
