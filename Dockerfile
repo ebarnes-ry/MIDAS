@@ -15,6 +15,14 @@ RUN apt-get update && apt-get install -y \
 WORKDIR /app
 
 COPY requirements.txt .
+
+# Install CPU-only PyTorch first. The default PyPI wheel bundles CUDA (~2.3 GB);
+# the CPU wheel is ~250 MB. We install it explicitly so the second RUN (which
+# installs the rest of requirements.txt) sees torch already satisfied and skips it.
+RUN pip install --no-cache-dir \
+    torch==2.8.0 torchvision \
+    --index-url https://download.pytorch.org/whl/cpu
+
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
