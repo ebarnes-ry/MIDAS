@@ -1,11 +1,13 @@
 // midas-frontend/src/services/SimpleAPIService.ts
 
-import { 
-  DocumentUploadResponse, 
-  CompletePipelineResponse, 
+import {
+  DocumentUploadResponse,
+  CompletePipelineResponse,
   UserSelectionRequest,
   ReasoningExplainRequest,
   ReasoningExplainResponse,
+  FeedbackRequest,
+  FeedbackResponse,
   HealthStatus
 } from '../types/api';
 
@@ -81,6 +83,15 @@ export class SimpleAPIService {
     return response.json();
   }
   
+  static async getFeedback(request: FeedbackRequest): Promise<FeedbackResponse> {
+    const response = await this._fetchWithTimeout(`${API_BASE}/api/v1/reasoning/feedback`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(request),
+    }, 60000);
+    return response.json();
+  }
+
   static async healthCheck(): Promise<HealthStatus> {
     const response = await this._fetchWithTimeout(`${API_BASE}/health/`, {}, 5000);
     return response.json();

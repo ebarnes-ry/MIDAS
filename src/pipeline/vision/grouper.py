@@ -78,7 +78,7 @@ from pydantic import BaseModel, Field
 from dataclasses import dataclass
 
 from src.models.manager import ModelManager
-from .types import UIDocument, UIBlock, Problem
+from .types import UIDocument, UIBlock, Problem, ProblemType
 
 # Pydantic model for robust parsing of the new, simpler LLM response
 class ProblemSchema(BaseModel):
@@ -100,6 +100,25 @@ class SemanticGrouper:
     def __init__(self, model_manager: ModelManager):
         self.model_manager = model_manager
 
+    def _classify_problem_type(self, problem_text: str) -> ProblemType:
+        """Heuristic keyword-based classification of a math problem."""
+        text = problem_text.lower()
+        if any(k in text for k in ["prove", "proof", "show that", "demonstrate", "if and only if", "∀", "∃"]):
+            return ProblemType.PROOF
+        if any(k in text for k in ["∫", "integral", "derivative", "differentiate", "lim", "limit", "∂", "series", "converge"]):
+            return ProblemType.CALCULUS
+        if any(k in text for k in ["matrix", "vector", "eigenvalue", "determinant", "span", "basis"]):
+            return ProblemType.LINEAR_ALGEBRA
+        if any(k in text for k in ["probability", "expected value", "variance", "distribution", "p(x"]):
+            return ProblemType.STATISTICS
+        if any(k in text for k in ["prime", "divisible", "modulo", "congruent", "integer"]):
+            return ProblemType.NUMBER_THEORY
+        if any(k in text for k in ["triangle", "angle", "circle", "area", "perimeter", "geometric"]):
+            return ProblemType.GEOMETRY
+        if any(k in text for k in ["solve", "equation", "simplify", "factor", "expand", "polynomial"]):
+            return ProblemType.ALGEBRA
+        return ProblemType.OTHER
+
     def group(self, full_page_text: str) -> List[Problem]:
         print("--- Starting semantic grouping of full page text ---")
         if not full_page_text.strip():
@@ -115,13 +134,16 @@ class SemanticGrouper:
 
             if response.parsed and isinstance(response.parsed, GroupingResponse):
                 print(f"Semantic grouping successful. Found {len(response.parsed.problems)} problems.")
-                return [
-                    Problem(
+                problems = []
+                for i, p in enumerate(response.parsed.problems):
+                    prob = Problem(
                         problem_id=f"problem_{i+1}",
                         problem_text=p.problem_text,
-                        figure_references=p.figure_references
-                    ) for i, p in enumerate(response.parsed.problems)
-                ]
+                        figure_references=p.figure_references,
+                    )
+                    prob.problem_type = self._classify_problem_type(p.problem_text)
+                    problems.append(prob)
+                return problems
             else:
                 print(f" Semantic grouping failed to parse. Raw response: {response.content}")
                 return []

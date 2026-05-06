@@ -28,6 +28,7 @@ class StepVerification(BaseModel):
     step_number: int
     description: str
     verified: bool
+    note: str = ""
 
 class CodeExecutionResult(BaseModel):
     success: bool

@@ -155,19 +155,40 @@ async def upload_document(file: UploadFile = File(...), session_manager: Session
         raise HTTPException(status_code=400, detail=f"Unsupported file type: {file.content_type}.")
     try:
         file_content = await file.read()
-        original_image = Image.open(io.BytesIO(file_content)).convert("RGB")
+
+        # Composite any transparent PNG onto a white background before processing.
+        # Without this, PIL's convert("RGB") maps transparent pixels to black, which
+        # inverts the image (black text on white → invisible on black) and causes
+        # Marker's LLM to fail at describing the equation.
+        raw = Image.open(io.BytesIO(file_content))
+        if raw.mode in ('RGBA', 'LA', 'P'):
+            if raw.mode == 'P':
+                raw = raw.convert('RGBA')
+            background = Image.new('RGB', raw.size, (255, 255, 255))
+            alpha = raw.split()[-1]
+            background.paste(raw, mask=alpha)
+            original_image = background
+        else:
+            original_image = raw.convert('RGB')
+
+        import tempfile, os
+
+        # Save the normalised (white-background) image to the temp file so that
+        # Marker also receives the corrected version, not the raw transparent PNG.
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as tmp_file:
+            original_image.save(tmp_file, format='PNG')
+            tmp_filepath = tmp_file.name
+
         print("--- Validating image content ---")
         validation_response = model_manager.call(task="validation", prompt_ref="vision/validate@v1", variables={}, schema=MathValidationResult, images=[original_image])
         if not validation_response.parsed or not validation_response.parsed.contains_math:
             reason = validation_response.parsed.reason if validation_response.parsed else "Could not determine content."
+            os.unlink(tmp_filepath)
             raise HTTPException(status_code=400, detail=f"Validation Failed: {reason}")
         print(f"Content validated: {validation_response.parsed.reason}")
-        import tempfile, os
-        with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(file.filename)[1]) as tmp_file:
-            tmp_file.write(file_content)
-            tmp_filepath = tmp_file.name
         try:
             vision_pipeline = VisionPipeline(model_manager)
+
             vision_input = VisionInput(file_path=tmp_filepath, file_type=file.content_type)
             ui_document = vision_pipeline.process_input(vision_input)
             
@@ -234,9 +255,59 @@ async def complete_pipeline(request: UserSelectionRequest, session_manager: Sess
         )
         verification_time = time.time() - verification_start_time
         total_processing_time = time.time() - full_start_time
+        def _step_dict(s):
+            return {
+                "step_number": s.step_number,
+                "claim": s.claim,
+                "justification": s.justification,
+                "latex_expression": s.latex_expression,
+                "verification_status": s.verification_status,
+                "verification_note": s.verification_note,
+                "feedback": getattr(s, "feedback", None),
+            }
+
+        # Build step-aware repair history: entry 0 = initial attempt, entry N = Nth repair
+        repair_attempts_with_steps = [{
+            "attempt_number": 1,
+            "reasoning_steps": [_step_dict(s) for s in reasoning_output.steps],
+            "final_answer": reasoning_output.final_answer,
+            "verification_status": "initial",
+            "steps_verified": 0,
+            "steps_failed": 0,
+        }]
+        for i, r in enumerate(repair_history):
+            steps = r.repaired_reasoning.steps if r.repaired_reasoning else []
+            repair_attempts_with_steps.append({
+                "attempt_number": i + 2,
+                "reasoning_steps": [_step_dict(s) for s in steps],
+                "final_answer": r.repaired_reasoning.final_answer if r.repaired_reasoning else "",
+                "verification_status": "verified" if r.success else "failed",
+                "steps_verified": 0,
+                "steps_failed": 0,
+            })
+
         response_data = {
             "vision": {"problem_statement": vision_output.problem_statement, "visual_context": vision_output.visual_context, "processing_time": vision_time, "metadata": vision_output.source_metadata},
-            "reasoning": {"original_problem": reasoning_output.original_problem, "worked_solution": reasoning_output.worked_solution, "final_answer": reasoning_output.final_answer, "think_reasoning": reasoning_output.think_reasoning, "processing_time": reasoning_time, "metadata": reasoning_output.processing_metadata},
+            "reasoning": {
+                "original_problem": reasoning_output.original_problem,
+                "steps": [
+                    {
+                        "step_number": s.step_number,
+                        "claim": s.claim,
+                        "justification": s.justification,
+                        "latex_expression": s.latex_expression,
+                        "verification_status": s.verification_status,
+                        "verification_note": s.verification_note,
+                        "feedback": s.feedback,
+                    }
+                    for s in verification_result.reasoning_output.steps
+                ],
+                "worked_solution": reasoning_output.worked_solution,
+                "final_answer": reasoning_output.final_answer,
+                "think_reasoning": reasoning_output.think_reasoning,
+                "processing_time": reasoning_time,
+                "metadata": reasoning_output.processing_metadata,
+            },
             "verification": {
                 "original_problem": verification_result.reasoning_output.original_problem,
                 "worked_solution": verification_result.reasoning_output.worked_solution,
@@ -247,16 +318,15 @@ async def complete_pipeline(request: UserSelectionRequest, session_manager: Sess
                 "confidence_score": verification_result.confidence_score,
                 "answer_match": verification_result.answer_match,
                 "errors": [err.model_dump() for err in verification_result.errors],
-                "repair_history": [
+                "repair_history": repair_attempts_with_steps,
+                "step_verifications": [
                     {
-                        "attempt": repair.attempt_number,
-                        "type": repair.repair_type,
-                        "reason": repair.reason,
-                        "success": repair.success,
-                        "processing_time": repair.processing_time,
-                        "error_message": repair.error_message
+                        "step_number": sv.step_number,
+                        "description": sv.description,
+                        "verified": sv.verified,
+                        "note": sv.note,
                     }
-                    for repair in repair_history
+                    for sv in verification_result.step_verifications
                 ],
                 "metadata": {
                     "reasoning_repair_attempts": len([r for r in repair_history if r.repair_type == "reasoning"]),

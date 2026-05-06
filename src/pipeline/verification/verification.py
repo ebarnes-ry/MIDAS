@@ -1,7 +1,8 @@
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 import json
 
 from .verification_types import VerificationResult, VerificationError, ErrorType
+from src.pipeline.reasoning.feedback import FeedbackGenerator
 from .codegen import SymPyCodeGenerator
 from .executor import SafeExecutor
 from .parser import VerificationOutputParser
@@ -122,7 +123,7 @@ Fix the Python code so it is syntactically correct and strictly follows the cont
     def _get_repaired_code(self, reasoning: ReasoningOutput, repair_prompt_user_content: str) -> str:
         """Calls the LLM with a specific repair prompt."""
         # We reuse the system prompt from the v3 contract to remind the model of the rules.
-        system_prompt = self.model_manager.prompts.load_prompt("codegen/baseline_codegen@v3").system_template
+        system_prompt = self.model_manager.prompts.load_prompt("codegen/baseline_codegen@v6").system_template
         
         messages = [
             {"role": "system", "content": system_prompt},
@@ -131,7 +132,7 @@ Fix the Python code so it is syntactically correct and strictly follows the cont
         
         response = self.model_manager.call(
             task="verification",
-            prompt_ref="codegen/baseline_codegen@v3", # Use same task config
+            prompt_ref="codegen/baseline_codegen@v6", # Use same task config
             variables={'reasoning': reasoning}, # For model/provider context
             messages_override=messages,
             temperature=self.repair_temperature
@@ -142,8 +143,25 @@ Fix the Python code so it is syntactically correct and strictly follows the cont
             raise ValueError("Repair attempt failed to generate any code.")
         return repaired_code
     
+    def _annotate_reasoning_steps(
+        self,
+        reasoning: ReasoningOutput,
+        step_verifications: List
+    ) -> None:
+        """Write verification results back onto ReasoningStep objects in-place."""
+        step_map = {sv.step_number: sv for sv in step_verifications}
+        for step in reasoning.steps:
+            result = step_map.get(step.step_number)
+            if result is not None:
+                step.verification_status = result.verified
+                step.verification_note = result.note if not result.verified else None
+
     def _create_final_result(self, reasoning, code, exec_result, steps, final_verdict, status, repaired_from_codegen_fault=False) -> VerificationResult:
         """Helper to construct the final VerificationResult object."""
+        self._annotate_reasoning_steps(reasoning, steps)
+        FeedbackGenerator(self.model_manager).annotate_failed_steps(
+            reasoning.original_problem, reasoning.steps
+        )
         confidence = self._calculate_confidence(exec_result, steps, final_verdict)
         errors = []
         

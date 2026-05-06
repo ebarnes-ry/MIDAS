@@ -49,7 +49,7 @@ class SymPyCodeGenerator:
         try:
             response = self.model_manager.call(
                 task="verification",
-                prompt_ref="codegen/baseline_codegen@v3",
+                prompt_ref="codegen/baseline_codegen@v6",
                 variables={"reasoning": reasoning},
             )
         except Exception as e:
@@ -62,7 +62,7 @@ class SymPyCodeGenerator:
         metadata = {
             "model_used": response.meta.get("model"),
             "latency_ms": response.meta.get("latency"),
-            "prompt_ref": "codegen/baseline_codegen@v3"
+            "prompt_ref": "codegen/baseline_codegen@v6"
         }
 
         return code, metadata

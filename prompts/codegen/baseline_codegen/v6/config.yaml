@@ -1,0 +1,5 @@
+task: verification
+version: v6
+description: >
+  Step-aligned SymPy verification. Receives a structured list of ReasoningStep
+  objects and must emit exactly one JSON verification line per step_number.

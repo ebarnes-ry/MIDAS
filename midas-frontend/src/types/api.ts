@@ -85,6 +85,36 @@ export interface VerificationRepairAttempt {
   error_message: string | null;
 }
 
+export interface RepairAttempt {
+  attempt_number: number;
+  reasoning_steps: ReasoningStepResponse[];
+  final_answer: string;
+  verification_status: string;
+  steps_verified: number;
+  steps_failed: number;
+}
+
+export interface TrajectoryOutcome {
+  final_status: string;
+  attempt_count: number;
+  difficulty_signal: number;
+}
+
+export interface StepVerificationResponse {
+  step_number: number;
+  description: string;
+  verified: boolean;
+  note: string;
+}
+
+export interface VerificationErrorResponse {
+  error_type: string;
+  message: string;
+  line_number?: number;
+  problematic_code?: string;
+  suggested_fix?: string;
+}
+
 export interface CompletePipelineResponse {
   success: boolean;
   message: string;
@@ -98,6 +128,7 @@ export interface CompletePipelineResponse {
     };
     reasoning: {
       original_problem: string;
+      steps: ReasoningStepResponse[];
       worked_solution: string;
       final_answer: string;
       think_reasoning: string;
@@ -121,7 +152,8 @@ export interface CompletePipelineResponse {
         suggested_fix?: string;
         traceback?: string;
       }>;
-      repair_history: VerificationRepairAttempt[];
+      repair_history: RepairAttempt[];
+      step_verifications: StepVerificationResponse[];
       metadata: {
         reasoning_repair_attempts: number;
         codegen_repair_attempts: number;
@@ -145,7 +177,31 @@ export interface DocumentState {
   completePipelineResult: CompletePipelineResponse | null;
 }
 
-// === ADD THESE NEW TYPES AT THE END ===
+export interface ReasoningStepResponse {
+  step_number: number;
+  claim: string;
+  justification: string;
+  latex_expression?: string;
+  verification_status: boolean | null;
+  verification_note?: string;
+  feedback?: string;
+}
+
+export interface FeedbackRequest {
+  problem_statement: string;
+  step_number: number;
+  claim: string;
+  latex_expression?: string;
+  justification: string;
+  verification_note?: string;
+}
+
+export interface FeedbackResponse {
+  success: boolean;
+  data?: { feedback: string };
+  error?: string;
+}
+
 export interface ReasoningExplainRequest {
   problem_statement: string;
   worked_solution: string;

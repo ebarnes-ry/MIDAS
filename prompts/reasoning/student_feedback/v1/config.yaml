@@ -1,0 +1,5 @@
+task: reasoning
+version: v1
+description: >
+  Generates targeted student-facing feedback for a single failed proof step.
+  Explains what was claimed, what is actually true, and the likely source of error.

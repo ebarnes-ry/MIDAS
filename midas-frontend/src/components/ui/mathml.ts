@@ -1,4 +1,4 @@
-// Heuristics shared by SmartMathRenderer and CanvasView
+// Heuristics shared by SmartMathRenderer, FormattedMathText, and CanvasView
 
 export const looksLikeHTML = (s: string) => /<[^>]+>/.test(s);
 
@@ -11,6 +11,44 @@ export const ensureDelimiters = (s: string) => {
   if (hasTeXDelimiters(t)) return t;
   const display = t.includes('\n') || /\\begin|\\frac|=/.test(t);
   return display ? `$$ ${t} $$` : `\\(${t}\\)`;
+};
+
+/**
+ * Converts $...$ and $$...$$ delimiters to \(...\) and \[...\].
+ *
+ * MathJax has a known ambiguity with the $ delimiter: when a $ is immediately
+ * followed by a digit or space (e.g. "=$1 - \cos…" or "costs $5"), the parser
+ * conservatively treats it as a currency sign rather than opening inline math.
+ * Any $ left unmatched after that point causes the rest of the paragraph to
+ * render as raw LaTeX.
+ *
+ * The \( \) form is completely unambiguous — MathJax always treats it as math.
+ * This function rewrites the text before it reaches MathJax so there are no
+ * $ signs left for the parser to misinterpret.
+ *
+ * Algorithm:
+ *   1. Replace $$...$$ with \[...\]  (display math, non-greedy)
+ *   2. Walk the remaining string character-by-character. Each $ toggles
+ *      between "in math" and "in prose", emitting \( or \) as appropriate.
+ *      An unclosed math region at end-of-string is auto-closed with \).
+ */
+export const normalizeDollarDelimiters = (text: string): string => {
+  // Pass 1: display math $$...$$ → \[...\]
+  let s = text.replace(/\$\$([\s\S]*?)\$\$/g, (_m, inner) => `\\[${inner}\\]`);
+
+  // Pass 2: inline math $...$ → \(...\)
+  let out = '';
+  let inMath = false;
+  for (let i = 0; i < s.length; i++) {
+    if (s[i] === '$' && s[i - 1] !== '\\') {
+      out += inMath ? '\\)' : '\\(';
+      inMath = !inMath;
+    } else {
+      out += s[i];
+    }
+  }
+  if (inMath) out += '\\)'; // auto-close any unclosed region
+  return out;
 };
 
 // Replace <math>...</math> that aren't real MathML with TeX delimiters.

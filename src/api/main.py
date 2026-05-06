@@ -10,7 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 
-from .routers import vision, health, reasoning, codegen, verification
+from .routers import vision, health, reasoning, codegen, verification, trajectories
 from src.models.manager import ModelManager
 
 # Global application state
@@ -73,6 +73,7 @@ def create_app() -> FastAPI:
     app.include_router(reasoning.router, prefix="/api/v1/reasoning", tags=["reasoning"])
     app.include_router(codegen.router, prefix="/api/v1/codegen", tags=["codegen"])
     app.include_router(verification.router, prefix="/api/v1/verification", tags=["verification"])
+    app.include_router(trajectories.router, prefix="/api/v1/trajectories", tags=["trajectories"])
     
     return app
 

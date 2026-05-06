@@ -1,0 +1,14 @@
+Generate SymPy verification code for the following proof steps.
+
+Problem: {{ reasoning.original_problem }}
+
+Steps to verify:
+{% for step in reasoning.steps %}
+[{{ step.step_number }}] {{ step.claim }}
+    LaTeX: {{ step.latex_expression or "N/A" }}
+    Justification: {{ step.justification }}
+{% endfor %}
+
+Expected final answer: {{ reasoning.final_answer }}
+
+Output ONLY valid Python code. No explanation, no markdown fences.

@@ -1,235 +1,312 @@
-import React, { useState, useMemo } from 'react';
-import { CompletePipelineResponse, ReasoningExplainRequest } from '../../types/api';
+import React, { useState } from 'react';
+import { CompletePipelineResponse } from '../../types/api';
+import { StepCard } from './StepCard';
+import { RepairHistory } from './RepairHistory';
+import { ProofView } from './ProofView';
 import { SmartMathRenderer } from '../ui/SmartMathRenderer';
-import { SimpleAPIService } from '../../services/SimpleAPIService';
-import { LoadingSpinner } from '../ui/LoadingSpinner';
 
-// Simple Modal Component
-const ExplanationModal: React.FC<{ content: string; isLoading: boolean; onClose: () => void }> = ({ content, isLoading, onClose }) => (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" onClick={onClose}>
-        <div className="bg-white rounded-lg shadow-xl p-6 max-w-2xl w-full mx-4" onClick={e => e.stopPropagation()}>
-            <h3 className="text-lg font-bold mb-4">Step Explanation</h3>
-            <div className="prose prose-sm max-w-none border-t pt-4 min-h-[100px]">
-                {isLoading ? <LoadingSpinner message="Generating explanation..."/> : <SmartMathRenderer content={content} />}
-            </div>
-            <button onClick={onClose} className="mt-4 bg-gray-200 px-4 py-2 rounded text-sm font-semibold">Close</button>
+// ── Error type metadata ───────────────────────────────────────────────────────
+const ERR_META: Record<string, { label: string; description: string }> = {
+  ANSWER_MISMATCH:    { label: 'Reasoning Fault',      description: 'The mathematical argument contains an error.' },
+  ASSERTION_FAILED:   { label: 'Step Failed',           description: 'SymPy disproved a step in the solution.' },
+  SYNTAX_ERROR:       { label: 'Code Generation Fault', description: 'The verifier code had a syntax error — not a math error.' },
+  TIMEOUT:            { label: 'Timeout',               description: 'Verification exceeded the time limit.' },
+  SYMBOLIC_FAILURE:   { label: 'Symbolic Limitation',   description: 'SymPy could not verify this symbolically.' },
+  CONTRACT_VIOLATION: { label: 'Contract Violation',    description: 'Verifier did not produce expected output format.' },
+};
+
+// ── Shared style tokens ───────────────────────────────────────────────────────
+const mono: React.CSSProperties = { fontFamily: "'JetBrains Mono', monospace" };
+const serif2: React.CSSProperties = { fontFamily: "'Crimson Pro', serif" };
+
+// ── Sidebar ───────────────────────────────────────────────────────────────────
+const Sidebar: React.FC<{
+  problemStatement: string;
+  steps: number;
+  repairAttempts: number;
+  status: string;
+  confidence: number;
+  onStartOver: () => void;
+}> = ({ problemStatement, steps, repairAttempts, status, confidence, onStartOver }) => {
+  const statusOk = status === 'verified';
+  return (
+    <div style={{ width: 220, flexShrink: 0, background: 'var(--parchment)', borderRight: '1px solid var(--rule)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      {/* Brand */}
+      <div style={{ padding: '20px 18px 16px', borderBottom: '1px solid var(--rule)' }}>
+        <div style={{ fontSize: 19, fontWeight: 600, letterSpacing: '0.06em' }}>MIDAS</div>
+        <div style={{ ...mono, fontSize: 10.5, color: 'var(--ink-3)', marginTop: 2 }}>phi4-mini-reasoning</div>
+      </div>
+
+      {/* Pipeline (all done) */}
+      <div style={{ padding: '14px 18px 6px' }}>
+        <div style={{ ...mono, fontSize: 9.5, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--ink-3)', marginBottom: 8 }}>
+          Pipeline
         </div>
+        {['Vision', 'Reasoning', 'Verification', 'Results'].map((name, i) => (
+          <div key={name} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '5px 8px', borderRadius: 4, marginBottom: 2, background: i === 3 ? 'var(--accent-lt)' : 'transparent' }}>
+            <div style={{ width: 20, height: 20, borderRadius: '50%', border: `1.5px solid ${i === 3 ? 'var(--accent)' : 'var(--verified-bd)'}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 9, ...mono, flexShrink: 0, background: i === 3 ? 'var(--accent-lt)' : 'var(--verified-bg)', color: i === 3 ? 'var(--accent)' : 'var(--verified)' }}>
+              {i === 3 ? '4' : '✓'}
+            </div>
+            <div style={{ fontSize: 13.5, ...serif2, color: i === 3 ? 'var(--accent)' : 'var(--ink-2)', fontWeight: i === 3 ? 600 : 400 }}>
+              {name}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Divider */}
+      <div style={{ height: 1, background: 'var(--rule)', margin: '8px 18px' }} />
+
+      {/* Problem snippet */}
+      <div style={{ padding: '8px 18px' }}>
+        <div style={{ ...mono, fontSize: 9.5, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--ink-3)', marginBottom: 6 }}>Problem</div>
+        <div style={{ fontSize: 13.5, fontStyle: 'italic', color: 'var(--ink-2)', ...serif2, padding: '4px 8px', lineHeight: 1.5 }}>
+          {problemStatement.length > 100 ? problemStatement.slice(0, 100) + '…' : problemStatement}
+        </div>
+      </div>
+
+      <div style={{ height: 1, background: 'var(--rule)', margin: '8px 18px' }} />
+
+      {/* Metadata */}
+      <div style={{ padding: '8px 18px', ...mono, fontSize: 11.5, color: 'var(--ink-3)', lineHeight: 2 }}>
+        <div>steps &nbsp;<span style={{ color: 'var(--ink-2)' }}>{steps}</span></div>
+        <div>attempts &nbsp;<span style={{ color: 'var(--ink-2)' }}>{repairAttempts + 1}</span></div>
+        <div>confidence &nbsp;<span style={{ color: 'var(--ink-2)' }}>{(confidence * 100).toFixed(0)}%</span></div>
+        <div style={{ marginTop: 8 }}>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 8px', borderRadius: 3, fontSize: 10.5, border: '1px solid', background: statusOk ? 'var(--verified-bg)' : 'var(--failed-bg)', borderColor: statusOk ? 'var(--verified-bd)' : 'var(--failed-bd)', color: statusOk ? 'var(--verified)' : 'var(--failed)' }}>
+            {statusOk ? '✓ verified' : '✗ ' + status.replace('_', ' ')}
+          </span>
+        </div>
+      </div>
+
+      {/* Footer */}
+      <div style={{ marginTop: 'auto', padding: '14px 18px', borderTop: '1px solid var(--rule)' }}>
+        <button
+          onClick={onStartOver}
+          style={{ ...mono, fontSize: 11, padding: '6px 0', width: '100%', textAlign: 'center', border: '1px solid var(--rule)', borderRadius: 4, background: 'transparent', color: 'var(--ink-2)', cursor: 'pointer', letterSpacing: '0.03em', transition: 'background 0.13s' }}
+        >
+          ← New problem
+        </button>
+      </div>
     </div>
-);
+  );
+};
 
+// ── Main component ────────────────────────────────────────────────────────────
 export const PipelineResults: React.FC<{ result: CompletePipelineResponse; onStartOver: () => void }> = ({ result, onStartOver }) => {
-    const [expandedSections, setExpandedSections] = useState({ thinking: false, solution: true, code: true, errors: true });
-    const [explanation, setExplanation] = useState<string | null>(null);
-    const [isLoadingExplanation, setIsLoadingExplanation] = useState(false);
+  const [activeTab, setActiveTab] = useState<'solution' | 'thinking' | 'code'>('solution');
+  const [proofView, setProofView] = useState(false);
+  const [showRepairOpen, setShowRepairOpen] = useState(false);
 
-    const toggleSection = (section: keyof typeof expandedSections) => setExpandedSections(prev => ({ ...prev, [section]: !prev[section] }));
-
-    const solutionSteps = useMemo(() => {
-        if (!result.data?.reasoning.worked_solution) return [];
-        return result.data.reasoning.worked_solution.split(/(?=\d+\.\s*)/).filter(s => s.trim());
-    }, [result.data?.reasoning.worked_solution]);
-
-    const handleStepClick = async (stepText: string) => {
-        if (!result.data) return;
-        setIsLoadingExplanation(true);
-        setExplanation(''); // Show modal immediately with loading state
-        try {
-            const request: ReasoningExplainRequest = {
-                problem_statement: result.data.vision.problem_statement,
-                worked_solution: result.data.reasoning.worked_solution,
-                step_text: stepText,
-            };
-            const response = await SimpleAPIService.explainStep(request);
-            if (response.success && response.data) {
-                setExplanation(response.data.explanation);
-            } else {
-                 setExplanation("Error: Could not generate an explanation.");
-            }
-        } catch (error) {
-            console.error("Failed to get explanation", error);
-            setExplanation("Sorry, an error occurred while generating the explanation for this step.");
-        } finally {
-            setIsLoadingExplanation(false);
-        }
-    };
-
-    if (!result.data) {
-        return (
-            <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-                <div className="text-center p-8">
-                    <div className="text-red-500 text-xl mb-4">❌ Pipeline Failed</div>
-                    <p className="text-gray-600 mb-4 bg-red-100 p-4 rounded-lg">{result.message}</p>
-                    <button onClick={onStartOver} className="bg-blue-500 text-white px-6 py-2 rounded-lg hover:bg-blue-600">Start Over</button>
-                </div>
-            </div>
-        );
-    }
-
-    const { vision, reasoning, verification, total_processing_time } = result.data;
-    const getStatusPill = (status: string) => {
-        const base = "text-sm font-bold px-3 py-1 rounded-full text-white";
-        const colors: Record<string, string> = {
-            verified: "bg-green-600",
-            failed_reasoning: "bg-orange-600",
-            failed_codegen: "bg-red-600",
-            failed_pipeline: "bg-red-800",
-            partial: "bg-yellow-500",
-            timeout: "bg-purple-600",
-        };
-        return `${base} ${colors[status.toLowerCase()] || 'bg-gray-500'}`;
-    };
-
+  if (!result.data) {
     return (
-        <>
-            {(isLoadingExplanation || explanation) && 
-                <ExplanationModal 
-                    content={explanation || ""} 
-                    isLoading={isLoadingExplanation}
-                    onClose={() => setExplanation(null)} 
-                />
-            }
-            
-            <div className="min-h-screen bg-gray-50">
-                <div className="bg-white shadow-sm border-b">
-                    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex items-center justify-between">
-                        <div>
-                            <h1 className="text-2xl font-bold">Pipeline Results</h1>
-                            <p className="text-sm text-gray-500 mt-1">Completed in {total_processing_time.toFixed(2)}s</p>
-                        </div>
-                        <button onClick={onStartOver} className="bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600">Start Over</button>
-                    </div>
-                </div>
-
-                <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 grid grid-cols-1 lg:grid-cols-2 gap-8">
-                    <div className="space-y-6">
-                        <div className="bg-white rounded-lg shadow-sm border p-6">
-                            <h2 className="text-lg font-semibold mb-3">Problem Statement</h2>
-                            <div className="p-4 bg-gray-50 rounded-md"><SmartMathRenderer content={vision.problem_statement} /></div>
-                        </div>
-                        <div className="bg-white rounded-lg shadow-sm border">
-                            <button onClick={() => toggleSection('thinking')} className="w-full px-6 py-4 text-left flex items-center justify-between hover:bg-gray-50">
-                                <h2 className="text-lg font-semibold">AI Thinking Process</h2>
-                                <span className={`transform transition-transform ${expandedSections.thinking ? 'rotate-180' : ''}`}>▼</span>
-                            </button>
-                            {expandedSections.thinking && <div className="px-6 pb-6 border-t"><pre className="whitespace-pre-wrap text-sm font-mono bg-gray-50 p-4 rounded-md mt-4">{reasoning.think_reasoning}</pre></div>}
-                        </div>
-                        <div className="bg-white rounded-lg shadow-sm border">
-                            <button onClick={() => toggleSection('solution')} className="w-full px-6 py-4 text-left flex items-center justify-between hover:bg-gray-50">
-                                <h2 className="text-lg font-semibold">Worked Solution (Click a step for details)</h2>
-                                <span className={`transform transition-transform ${expandedSections.solution ? 'rotate-180' : ''}`}>▼</span>
-                            </button>
-                            {expandedSections.solution && (
-                                <div className="px-6 pb-6 border-t">
-                                    <div className="p-4 bg-gray-50 rounded-md mt-4 space-y-4">
-                                        {solutionSteps.map((step, index) => (
-                                            <div key={index} onClick={() => handleStepClick(step)} className="cursor-pointer hover:bg-gray-200 p-2 rounded"><SmartMathRenderer content={step} /></div>
-                                        ))}
-                                    </div>
-                                </div>
-                            )}
-                        </div>
-                        <div className="bg-green-50 border border-green-200 rounded-lg p-6">
-                            <h2 className="text-lg font-semibold text-green-900 mb-3">Final Answer</h2>
-                            <div className="text-xl font-mono text-green-800 bg-green-100 rounded-lg p-4 text-center"><SmartMathRenderer content={reasoning.final_answer} /></div>
-                        </div>
-                    </div>
-
-                    <div className="space-y-6">
-                        <div className="bg-white rounded-lg shadow-sm border-2 border-black p-6">
-                            <h2 className="text-lg font-bold text-black mb-4">Verification Status</h2>
-                            <div className="flex items-center justify-between mb-4">
-                                <span className="text-base font-bold">Outcome:</span>
-                                <span className={getStatusPill(verification.status)}>{verification.status.toUpperCase()}</span>
-                            </div>
-                            <div className="flex items-center justify-between mb-4">
-                                <span className="text-base font-bold">Confidence:</span>
-                                <span className="text-lg font-mono font-bold">{(verification.confidence_score * 100).toFixed(1)}%</span>
-                            </div>
-                            {verification.answer_match !== null && (
-                                <div className="flex items-center justify-between mb-4">
-                                    <span className="text-base font-bold">Answer Match:</span>
-                                    <span className={`text-sm font-bold px-2 py-1 rounded ${verification.answer_match ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
-                                        {verification.answer_match ? '✓ Match' : '✗ Mismatch'}
-                                    </span>
-                                </div>
-                            )}
-
-                            {verification.repair_history && verification.repair_history.length > 0 && (
-                                <div className="mt-4 border-t-2 border-blue-200 pt-4">
-                                    <h3 className="text-sm font-bold text-blue-800 mb-2">
-                                        Repair Attempts ({verification.repair_history.length})
-                                    </h3>
-                                    <div className="space-y-2">
-                                        {verification.repair_history.map((repair, index) => (
-                                            <div key={index} className={`p-3 rounded-md border text-xs ${repair.success ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
-                                                <div className="flex justify-between items-center mb-1">
-                                                    <span className="font-bold">{repair.type} repair #{repair.attempt}</span>
-                                                    <span className={`px-2 py-1 rounded text-xs font-bold ${repair.success ? 'bg-green-200 text-green-800' : 'bg-red-200 text-red-800'}`}>
-                                                        {repair.success ? 'Success' : 'Failed'}
-                                                    </span>
-                                                </div>
-                                                <p className="text-gray-700 mb-1">{repair.reason}</p>
-                                                {repair.error_message && (
-                                                    <p className="text-red-600 font-mono text-xs">{repair.error_message}</p>
-                                                )}
-                                                <p className="text-gray-500 text-xs">Time: {repair.processing_time.toFixed(2)}s</p>
-                                            </div>
-                                        ))}
-                                    </div>
-                                </div>
-                            )}
-
-                            {verification.errors && verification.errors.length > 0 && (
-                                <div className="mt-4 border-t-2 border-black pt-4">
-                                    <button onClick={() => toggleSection('errors')} className="w-full text-left flex items-center justify-between">
-                                        <h3 className="text-sm font-bold text-red-600">Detected Errors ({verification.errors.length})</h3>
-                                        <span className={`transform transition-transform ${expandedSections.errors ? 'rotate-180' : ''}`}>▼</span>
-                                    </button>
-                                    {expandedSections.errors && (
-                                        <div className="mt-2 space-y-2">
-                                            {verification.errors.map((err, index) => (
-                                                <div key={index} className="bg-red-50 p-3 rounded-md border border-red-200">
-                                                    <p className="text-xs font-bold text-red-800">{err.error_type}</p>
-                                                    <p className="text-xs text-red-700 mt-1 font-mono">{err.message}</p>
-                                                    {err.suggested_fix && (
-                                                        <p className="text-xs text-blue-700 mt-1 italic">Suggestion: {err.suggested_fix}</p>
-                                                    )}
-                                                </div>
-                                            ))}
-                                        </div>
-                                    )}
-                                </div>
-                            )}
-                        </div>
-                        <div className="bg-white rounded-lg shadow-sm border">
-                            <button onClick={() => toggleSection('code')} className="w-full px-6 py-4 text-left flex items-center justify-between hover:bg-gray-50">
-                                <h2 className="text-lg font-semibold">Generated Verification Code</h2>
-                                <span className={`transform transition-transform ${expandedSections.code ? 'rotate-180' : ''}`}>▼</span>
-                            </button>
-                            {expandedSections.code && <div className="px-6 pb-6 border-t"><div className="bg-gray-900 rounded-lg p-4 overflow-x-auto mt-4"><pre className="text-sm text-green-400 font-mono"><code>{verification.generated_code}</code></pre></div></div>}
-                        </div>
-                        <div className="bg-white rounded-lg shadow-sm border p-6">
-                            <h2 className="text-lg font-semibold mb-4">Processing Details</h2>
-                            <div className="space-y-3 text-sm">
-                                <div className="flex justify-between"><span>Vision Analysis:</span><span className="font-mono">{vision.processing_time.toFixed(2)}s</span></div>
-                                <div className="flex justify-between"><span>Reasoning:</span><span className="font-mono">{reasoning.processing_time.toFixed(2)}s</span></div>
-                                <div className="flex justify-between"><span>Verification:</span><span className="font-mono">{verification.processing_time.toFixed(2)}s</span></div>
-                                {verification.repair_history.length > 0 && (
-                                    <div className="pl-4 border-l-2 border-blue-200 space-y-1">
-                                        <div className="flex justify-between text-xs text-blue-700">
-                                            <span>• Reasoning Repairs:</span><span className="font-mono">{verification.metadata.reasoning_repair_attempts}</span>
-                                        </div>
-                                        <div className="flex justify-between text-xs text-blue-700">
-                                            <span>• Codegen Repairs:</span><span className="font-mono">{verification.metadata.codegen_repair_attempts}</span>
-                                        </div>
-                                    </div>
-                                )}
-                                <div className="border-t pt-3 flex justify-between font-semibold"><span>Total Time:</span><span className="font-mono text-blue-600">{total_processing_time.toFixed(2)}s</span></div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </>
+      <div style={{ minHeight: '100vh', background: 'var(--cream)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <div style={{ maxWidth: 480, padding: 32, background: 'var(--failed-bg)', border: '1px solid var(--failed-bd)', borderRadius: 8 }}>
+          <div style={{ ...mono, fontSize: 13, color: 'var(--failed)', marginBottom: 12 }}>Pipeline failed</div>
+          <div style={{ ...serif2, fontSize: 15, color: 'var(--ink-2)', lineHeight: 1.6, marginBottom: 20 }}>{result.message}</div>
+          <button onClick={onStartOver} style={{ ...mono, fontSize: 11, padding: '8px 20px', border: '1px solid var(--rule)', borderRadius: 4, background: 'var(--cream)', color: 'var(--ink-2)', cursor: 'pointer' }}>← Start over</button>
+        </div>
+      </div>
     );
+  }
+
+  const { vision, reasoning, verification } = result.data;
+  const steps = reasoning.steps ?? [];
+  const repairHistory = verification?.repair_history ?? [];
+  const errors = verification?.errors ?? [];
+  const repairAttempts = Math.max(0, repairHistory.length - 1);
+
+  return (
+    <div style={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
+      <style>{`
+        .midas-tab { font-family:'JetBrains Mono',monospace; font-size:11px; letter-spacing:.05em; padding:7px 18px; cursor:pointer; color:var(--ink-3); border-bottom:2px solid transparent; margin-bottom:-1px; transition:all .13s; background:transparent; border-top:none; border-left:none; border-right:none; }
+        .midas-tab:hover { color:var(--ink); }
+        .midas-tab.active { color:var(--accent); border-bottom-color:var(--accent); }
+        .midas-btn-ghost { font-family:'JetBrains Mono',monospace; font-size:11px; padding:6px 14px; border-radius:4px; cursor:pointer; border:1px solid var(--rule); background:transparent; color:var(--ink-2); transition:all .13s; letter-spacing:.02em; }
+        .midas-btn-ghost:hover { background:var(--parchment); }
+        .midas-btn-on { font-family:'JetBrains Mono',monospace; font-size:11px; padding:6px 14px; border-radius:4px; cursor:pointer; border:1px solid var(--accent); background:var(--accent-lt); color:var(--accent); transition:all .13s; }
+        .midas-step-card { border-left:3px solid var(--rule-lt); border-radius:0 5px 5px 0; padding:13px 14px 13px 18px; background:var(--cream); margin-bottom:3px; display:flex; gap:0; transition:background .15s,border-color .15s; }
+        .midas-step-card.v { border-left-color:var(--verified); background:var(--verified-bg); }
+        .midas-step-card.f { border-left-color:var(--failed); background:var(--failed-bg); }
+        .midas-widget { background:var(--parchment); border:1px solid var(--rule); border-radius:6px; overflow:hidden; margin-bottom:14px; }
+        .midas-widget-hd { padding:9px 13px; border-bottom:1px solid var(--rule); font-size:9.5px; font-family:'JetBrains Mono',monospace; letter-spacing:.12em; text-transform:uppercase; color:var(--ink-3); display:flex; align-items:center; justify-content:space-between; }
+        .midas-widget-bd { padding:12px 13px; }
+        .midas-w-row { display:flex; justify-content:space-between; align-items:baseline; margin-bottom:6px; font-size:13px; }
+      `}</style>
+
+      {/* Left sidebar */}
+      <Sidebar
+        problemStatement={reasoning.original_problem}
+        steps={steps.length}
+        repairAttempts={repairAttempts}
+        status={verification?.status ?? 'unknown'}
+        confidence={verification?.confidence_score ?? 0}
+        onStartOver={onStartOver}
+      />
+
+      {/* Main area */}
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+
+        {/* Page header */}
+        <div style={{ padding: '26px 36px 20px', borderBottom: '1px solid var(--rule)', display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 20, flexShrink: 0 }}>
+          <div>
+            <div style={{ ...mono, fontSize: 10, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--ink-3)', marginBottom: 6 }}>
+              Problem statement
+            </div>
+            <div style={{ fontSize: 20, fontStyle: 'italic', color: 'var(--ink)', lineHeight: 1.45, maxWidth: 580 }}>
+              {vision.problem_statement}
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: 8, flexShrink: 0, marginTop: 4 }}>
+            <button className={proofView ? 'midas-btn-ghost' : 'midas-btn-on'} onClick={() => setProofView(false)}>Narrative</button>
+            <button className={proofView ? 'midas-btn-on' : 'midas-btn-ghost'} onClick={() => setProofView(true)}>Proof view</button>
+          </div>
+        </div>
+
+        {/* Body grid */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 268px', flex: 1, minHeight: 0 }}>
+
+          {/* Solution column */}
+          <div style={{ padding: '26px 36px 48px', borderRight: '1px solid var(--rule)', overflowY: 'auto' }} className="thin-scroll">
+
+            {/* Tabs */}
+            <div style={{ display: 'flex', borderBottom: '1px solid var(--rule)', marginBottom: 22 }}>
+              {(['solution', 'thinking', 'code'] as const).map(t => (
+                <button key={t} className={`midas-tab${activeTab === t ? ' active' : ''}`} onClick={() => setActiveTab(t)}>
+                  {t === 'code' ? 'SymPy code' : t.charAt(0).toUpperCase() + t.slice(1)}
+                </button>
+              ))}
+            </div>
+
+            {/* Solution tab */}
+            {activeTab === 'solution' && (
+              <>
+                {proofView ? (
+                  <>
+                    <div style={{ fontSize: 9.5, ...mono, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--ink-3)', paddingBottom: 8, borderBottom: '1px solid var(--rule-lt)', marginBottom: 18, display: 'flex', justifyContent: 'space-between' }}>
+                      <span>Proof structure</span>
+                      <span style={{ fontStyle: 'italic', fontFamily: "'EB Garamond', serif", letterSpacing: 0, textTransform: 'none' }}>click any step to expand</span>
+                    </div>
+                    <ProofView problemStatement={reasoning.original_problem} steps={steps} finalAnswer={reasoning.final_answer} />
+                  </>
+                ) : (
+                  <>
+                    <div style={{ fontSize: 9.5, ...mono, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--ink-3)', paddingBottom: 8, borderBottom: '1px solid var(--rule-lt)', marginBottom: 18, display: 'flex', justifyContent: 'space-between' }}>
+                      <span>Solution steps</span>
+                      <span style={{ fontStyle: 'italic', fontFamily: "'EB Garamond', serif", letterSpacing: 0, textTransform: 'none' }}>click a failed step for feedback</span>
+                    </div>
+                    {steps.length > 0
+                      ? steps.map(step => <StepCard key={step.step_number} step={step} problemStatement={reasoning.original_problem} />)
+                      : <div style={{ ...serif2, fontStyle: 'italic', color: 'var(--ink-3)', fontSize: 15 }}>No structured steps available.</div>
+                    }
+                  </>
+                )}
+
+                {/* Therefore */}
+                <div style={{ display: 'flex', gap: 16, marginTop: 22, paddingTop: 16, borderTop: '1.5px solid var(--rule)', alignItems: 'baseline' }}>
+                  <div style={{ ...mono, fontSize: 10, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--ink-3)', width: 68, flexShrink: 0 }}>Therefore</div>
+                  <div style={{ fontSize: 22, fontWeight: 600, fontStyle: 'italic', color: 'var(--accent)' }}>
+                    <SmartMathRenderer content={reasoning.final_answer} />
+                  </div>
+                </div>
+
+                <RepairHistory repairHistory={repairHistory} />
+              </>
+            )}
+
+            {/* Thinking tab */}
+            {activeTab === 'thinking' && (
+              <>
+                <div style={{ fontSize: 9.5, ...mono, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--ink-3)', paddingBottom: 8, borderBottom: '1px solid var(--rule-lt)', marginBottom: 18 }}>
+                  Internal scratchpad
+                </div>
+                <div style={{ background: 'var(--parchment)', border: '1px solid var(--rule)', borderRadius: 6, padding: '14px 16px', ...mono, fontSize: 11.5, lineHeight: 1.75, color: 'var(--ink-2)', maxHeight: 360, overflow: 'auto' }}>
+                  {reasoning.think_reasoning || <span style={{ color: 'var(--ink-3)', fontStyle: 'italic' }}>No thinking trace available.</span>}
+                </div>
+              </>
+            )}
+
+            {/* Code tab */}
+            {activeTab === 'code' && (
+              <>
+                <div style={{ fontSize: 9.5, ...mono, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--ink-3)', paddingBottom: 8, borderBottom: '1px solid var(--rule-lt)', marginBottom: 18 }}>
+                  Generated SymPy verification code
+                </div>
+                <div style={{ background: '#1e1e1e', borderRadius: 6, padding: 16, overflow: 'auto', maxHeight: 400 }}>
+                  <pre style={{ ...mono, fontSize: 11.5, lineHeight: 1.75, color: '#a8d8a0', margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
+                    {verification?.generated_code || '# No code generated'}
+                  </pre>
+                </div>
+                <div style={{ ...mono, fontSize: 11, color: 'var(--ink-3)', marginTop: 8 }}>
+                  codegen/baseline_codegen@v6
+                </div>
+              </>
+            )}
+          </div>
+
+          {/* Right sidebar: verification */}
+          <div style={{ padding: '26px 22px 40px', overflowY: 'auto' }} className="thin-scroll">
+
+            <div style={{ fontSize: 9.5, ...mono, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--ink-3)', marginBottom: 12 }}>
+              Verification
+            </div>
+
+            {/* Summary widget */}
+            {verification && (
+              <div className="midas-widget">
+                <div className="midas-widget-hd">
+                  result
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 8px', borderRadius: 3, fontSize: 10.5, border: '1px solid', ...mono, background: verification.status === 'verified' ? 'var(--verified-bg)' : 'var(--failed-bg)', borderColor: verification.status === 'verified' ? 'var(--verified-bd)' : 'var(--failed-bd)', color: verification.status === 'verified' ? 'var(--verified)' : 'var(--failed)' }}>
+                    {verification.status}
+                  </span>
+                </div>
+                <div className="midas-widget-bd">
+                  <div className="midas-w-row"><span style={{ ...serif2, color: 'var(--ink-3)' }}>Steps verified</span><span style={{ ...mono, fontSize: 11.5, color: steps.filter(s => s.verification_status === true).length === steps.length ? 'var(--verified)' : 'var(--ink)' }}>{steps.filter(s => s.verification_status === true).length} / {steps.length}</span></div>
+                  <div className="midas-w-row"><span style={{ ...serif2, color: 'var(--ink-3)' }}>Steps failed</span><span style={{ ...mono, fontSize: 11.5, color: steps.filter(s => s.verification_status === false).length > 0 ? 'var(--failed)' : 'var(--ink)' }}>{steps.filter(s => s.verification_status === false).length}</span></div>
+                  <div className="midas-w-row"><span style={{ ...serif2, color: 'var(--ink-3)' }}>Repair attempts</span><span style={{ ...mono, fontSize: 11.5 }}>{repairAttempts}</span></div>
+                  <div className="midas-w-row"><span style={{ ...serif2, color: 'var(--ink-3)' }}>Confidence</span><span style={{ ...mono, fontSize: 11.5 }}>{(verification.confidence_score * 100).toFixed(1)}%</span></div>
+                  {/* Step dots */}
+                  <div style={{ display: 'flex', gap: 5, marginTop: 10, flexWrap: 'wrap' }}>
+                    {steps.map(s => (
+                      <div key={s.step_number} title={`Step ${s.step_number}`} style={{ width: 11, height: 11, borderRadius: '50%', background: s.verification_status === true ? 'var(--verified)' : s.verification_status === false ? 'var(--failed)' : 'var(--rule)' }} />
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Errors */}
+            {errors.length > 0 && errors.map((err, i) => {
+              const meta = ERR_META[err.error_type] ?? { label: err.error_type, description: '' };
+              const isFault = err.error_type === 'ANSWER_MISMATCH' || err.error_type === 'ASSERTION_FAILED';
+              return (
+                <div key={i} style={{ background: isFault ? 'var(--failed-bg)' : 'var(--amber-bg)', border: `1px solid ${isFault ? 'var(--failed-bd)' : 'var(--amber-bd)'}`, borderRadius: 6, overflow: 'hidden', marginBottom: 14 }}>
+                  <div style={{ padding: '8px 13px', borderBottom: `1px solid ${isFault ? 'var(--failed-bd)' : 'var(--amber-bd)'}`, ...mono, fontSize: 9.5, letterSpacing: '0.12em', textTransform: 'uppercase', color: isFault ? 'var(--failed)' : 'var(--amber)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    {meta.label}
+                    <span style={{ fontSize: 9.5, background: isFault ? 'var(--failed)' : 'var(--amber)', color: 'white', padding: '1px 6px', borderRadius: 2, ...mono }}>
+                      {err.error_type.toLowerCase().replace('_', ' ')}
+                    </span>
+                  </div>
+                  <div style={{ padding: '10px 13px', fontSize: 12, color: 'var(--ink-2)', ...mono, lineHeight: 1.7 }}>
+                    {meta.description && <div style={{ fontStyle: 'italic', fontFamily: "'Crimson Pro', serif", fontSize: 13, color: 'var(--ink-3)', marginBottom: 4 }}>{meta.description}</div>}
+                    {err.message}
+                    {err.suggested_fix && <div style={{ marginTop: 6, fontSize: 12, fontStyle: 'italic', color: isFault ? 'var(--failed)' : 'var(--amber)', fontFamily: "'Crimson Pro', serif" }}>Suggestion: {err.suggested_fix}</div>}
+                  </div>
+                </div>
+              );
+            })}
+
+            {/* Trajectory metadata */}
+            {repairAttempts >= 0 && (
+              <div style={{ ...mono, fontSize: 10.5, color: 'var(--ink-3)', lineHeight: 2.0, paddingTop: 10, borderTop: '1px solid var(--rule-lt)' }}>
+                <div>attempt_count &nbsp;<span style={{ color: 'var(--ink-2)' }}>{repairAttempts + 1}</span></div>
+                <div>steps &nbsp;<span style={{ color: 'var(--ink-2)' }}>{steps.length}</span></div>
+                <div>prompt_version &nbsp;<span style={{ color: 'var(--ink-2)' }}>solve@v2</span></div>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 };

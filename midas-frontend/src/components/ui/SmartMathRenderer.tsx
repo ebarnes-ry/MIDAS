@@ -1,112 +1,53 @@
-// // import React from 'react';
-// // import { MathJax } from 'better-react-mathjax';
-// // import { MathErrorBoundary } from '../vision/VisionErrorBoundary';
-
-// // interface SmartMathRendererProps {
-// //   content: string;
-// // }
-
-// // // const sanitizeContent = (html: string): string => {
-// // //   // Marker sometimes wraps clean math in ugly <p> tags. This is a pragmatic way to clean it.
-// // //   // It removes the outer <p ...> and </p> tags if the content is primarily a math block.
-// // //   const trimmed = html.trim();
-// // //   const match = trimmed.match(/^<p block-type=".*?">(.*)<\/p>$/s);
-// // //   if (match) {
-// // //     // If the inner content is just a math tag, return it directly.
-// // //     const inner = match[1].trim();
-// // //     if (inner.startsWith('<math')) {
-// // //       return inner;
-// // //     }
-// // //   }
-// // //   return html; // Return original if it doesn't match the pattern
-// // // }
-
-// // // const sanitiseContent = (html: string): string => {
-// // //   const sanitised = html.trim()
-// // //     .replaceAll(/<math\b[^>]*>/g, '$')
-// // //     .replaceAll(/<\/math>/g, "$");
-// // //   return sanitised;
-// // // }
-
-// // // export const SmartMathRenderer: React.FC<SmartMathRendererProps> = ({ content }) => {
-// // //   // const cleanedContent = sanitizeContent(content);
-// // //   const cleanedContent = sanitiseContent(content);
-
-// // //   return (
-// // //     <MathErrorBoundary>
-// // //       <MathJax dynamic>
-// // //         <div
-// // //           className="prose prose-sm max-w-none"
-// // //           // We still need dangerouslySetInnerHTML because the content is HTML
-// // //           dangerouslySetInnerHTML={{ __html: cleanedContent }}
-// // //         />
-// // //       </MathJax>
-// // //     </MathErrorBoundary>
-// // //   );
-// // // };
-
-// import React, { useMemo } from 'react';
-// import { MathJax } from 'better-react-mathjax';
-// import { MathErrorBoundary } from '../vision/VisionErrorBoundary';
-// import { looksLikeHTML, ensureDelimiters, normalizeMathPlaceholders } from './mathml';
-
-// interface SmartMathRendererProps {
-//   content: string;
-// }
-
-// export const SmartMathRenderer: React.FC<SmartMathRendererProps> = ({ content }) => {
-//   const prepared = useMemo(() => {
-//     if (!looksLikeHTML(content)) return ensureDelimiters(content);
-//     return normalizeMathPlaceholders(content);
-//   }, [content]);
-
-//   return (
-//     <MathErrorBoundary>
-//       <MathJax dynamic>
-//         {looksLikeHTML(content)
-//           ? (
-//             <div
-//               className="prose prose-sm max-w-none"
-//               dangerouslySetInnerHTML={{ __html: prepared }}
-//             />
-//           )
-//           : (
-//             <div className="prose prose-sm max-w-none">
-//               {prepared}
-//             </div>
-//           )
-//         }
-//       </MathJax>
-//     </MathErrorBoundary>
-//   );
-// };
-
 import React from 'react';
 import { MathJax } from 'better-react-mathjax';
 import { MathErrorBoundary } from '../vision/VisionErrorBoundary';
+import { looksLikeHTML, normalizeDollarDelimiters } from './mathml';
 
 interface SmartMathRendererProps {
   content: string;
 }
 
-const sanitizeContent = (html: string): string => {
-  const sanitised = html.trim()
+const sanitizeHTML = (html: string): string =>
+  html.trim()
     .replaceAll(/<math\b[^>]*>/g, '$')
-    .replaceAll(/<\/math>/g, "$");
-  return sanitised;
-}
+    .replaceAll(/<\/math>/g, '$');
 
+/**
+ * Encodes only the characters that would create unintended HTML structure
+ * (&, <, >) while leaving $ and \ intact so MathJax can find them.
+ */
+const encodeForDOM = (text: string): string =>
+  text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+
+/**
+ * Reliably renders LaTeX mixed with prose.
+ *
+ * THE CRITICAL DETAIL: better-react-mathjax's MathJax.typesetPromise fires via
+ * a MutationObserver that watches for real DOM mutations. React-managed text
+ * nodes (JSX string children) do not always trigger that observer, so MathJax
+ * silently skips them. Using dangerouslySetInnerHTML writes directly into the
+ * DOM and consistently triggers typesetting for both HTML and plain-text paths.
+ *
+ * For HTML content (Marker OCR output): sanitise <math> tags first.
+ * For plain text: HTML-encode <, >, & so no tags are injected, but leave
+ * $ and \ intact for MathJax to find and typeset.
+ */
 export const SmartMathRenderer: React.FC<SmartMathRendererProps> = ({ content }) => {
-  // const cleanedContent = sanitizeContent(content);
-  const cleanedContent = sanitizeContent(content);
+  if (!content) return null;
+
+  const html = looksLikeHTML(content)
+    ? sanitizeHTML(content)
+    : encodeForDOM(normalizeDollarDelimiters(content));
 
   return (
     <MathErrorBoundary>
       <MathJax dynamic>
-        <div
-          className="prose prose-sm max-w-none"
-          // We still need dangerouslySetInnerHTML because the content is HTML
-          dangerouslySetInnerHTML={{ __html: cleanedContent }}
+        <span
+          style={{ whiteSpace: 'pre-wrap' }}
+          dangerouslySetInnerHTML={{ __html: html }}
         />
       </MathJax>
     </MathErrorBoundary>

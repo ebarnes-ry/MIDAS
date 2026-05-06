@@ -1,3 +1,5 @@
+trajectory_log_path: "trajectories/midas_trajectories.jsonl"
+
 providers:
   ollama_local:
     settings:
@@ -42,7 +44,7 @@ tasks:
       seed: 42
       temperature: 0.1
       top_p: 0.95
-    prompt: reasoning/solve@v1
+    prompt_ref: reasoning/solve@v2
     provider: ollama_local
     timeout: 300
 
@@ -61,7 +63,7 @@ tasks:
       temperature: 0.1
       top_p: 0.95
       max_tokens: 2000
-    prompt_ref: codegen/baseline_codegen@v3
+    prompt_ref: codegen/baseline_codegen@v6
     provider: ollama_local
     timeout: 300
     # Verification-specific settings

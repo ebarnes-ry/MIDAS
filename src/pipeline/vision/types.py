@@ -1,10 +1,11 @@
 from dataclasses import dataclass, field
+from enum import Enum
 from pydantic import BaseModel, Field
 from typing import List, Dict, Any, Optional, Tuple, Union, Literal
 
 # Input types
 @dataclass
-class VisionInput: 
+class VisionInput:
     file_path: str
     file_type: str
 
@@ -14,6 +15,18 @@ class UserSelection:
     edited_latex: str
     original_image_path: str
 
+
+class ProblemType(str, Enum):
+    ALGEBRA = "algebra"
+    CALCULUS = "calculus"
+    PROOF = "proof"
+    GEOMETRY = "geometry"
+    STATISTICS = "statistics"
+    NUMBER_THEORY = "number_theory"
+    LINEAR_ALGEBRA = "linear_algebra"
+    OTHER = "other"
+
+
 @dataclass
 class Problem:
     problem_id: str
@@ -21,6 +34,7 @@ class Problem:
     figure_references: List[str] = field(default_factory=list)
     block_ids: List[str] = field(default_factory=list)
     referenced_figure_descriptions: List[str] = field(default_factory=list)
+    problem_type: ProblemType = ProblemType.OTHER
 
 @dataclass
 class UIBlock:

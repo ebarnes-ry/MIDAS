@@ -9,8 +9,12 @@ const config = {
   tex: {
     inlineMath: [["$", "$"], ["\\(", "\\)"]],
     displayMath: [["$$", "$$"], ["\\[", "\\]"]],
+    // Enable AMS commands: \binom, \text, \boldsymbol, aligned environments, etc.
+    packages: { "[+]": ["ams", "boldsymbol", "color", "newcommand"] },
   },
-  svg: { fontCache: "global" }
+  options: {
+    skipHtmlTags: ["script", "noscript", "style", "textarea", "pre"],
+  },
 };
 
 const root = ReactDOM.createRoot(

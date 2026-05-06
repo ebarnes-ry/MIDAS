@@ -1,55 +1,54 @@
+from typing import List, Tuple, Optional, Dict, Any
 import json
-from typing import List, Optional, Tuple, Dict, Any
+import re
+from .verification_types import StepVerification, CodeExecutionResult
 
-from .verification_types import CodeExecutionResult, StepVerification
 
 class VerificationOutputParser:
-    """
-    Parses the stdout of a verification script that adheres to the strict JSON contract.
-    """
-    def parse(self, execution_result: CodeExecutionResult) -> Tuple[List[StepVerification], Optional[Dict[str, Any]], Optional[Exception]]:
+    def parse(
+        self,
+        execution_result: CodeExecutionResult
+    ) -> Tuple[List[StepVerification], Optional[Dict], Optional[str]]:
         """
-        Parses the stdout for JSON objects.
+        Parse SymPy execution stdout into structured step verifications.
 
         Returns:
-            - A list of StepVerification objects.
-            - A dictionary containing the final verdict.
-            - An exception if parsing fails (indicating a contract violation).
+            (step_verifications, final_verdict_dict, parsing_error_string)
+            parsing_error_string is None on success.
         """
-        if not execution_result.success:
-            return [], None, None
+        steps: List[StepVerification] = []
+        final_verdict: Optional[Dict] = None
 
-        stdout = execution_result.stdout.strip()
-        step_verifications = []
-        final_verdict = None
-        
-        lines = stdout.splitlines()
-        
-        try:
-            for line in lines:
-                line = line.strip()
-                if not line:
-                    continue
-                
-                data = json.loads(line)
-                
-                if "step" in data and "verified" in data:
-                    # Validate required fields before creating StepVerification
-                    if not isinstance(data["step"], int) or not isinstance(data["verified"], bool):
-                        continue  # Skip malformed step verification
-                    step_verifications.append(StepVerification(
-                        step_number=data["step"],
-                        description=data.get("description", ""),
-                        verified=data["verified"]
-                    ))
-                elif "final_answer_verified" in data:
-                    # Validate final verdict structure
-                    if isinstance(data.get("final_answer_verified"), bool):
-                        final_verdict = data
-            
-            return step_verifications, final_verdict, None
-        except json.JSONDecodeError as e:
-            # This indicates the codegen model violated the contract.
-            return step_verifications, final_verdict, e
-        except Exception as e:
-            return step_verifications, final_verdict, e
+        if not execution_result.stdout:
+            return [], None, "Empty stdout — code produced no output"
+
+        seen_step_numbers: set = set()
+
+        for raw_line in execution_result.stdout.strip().split('\n'):
+            line = raw_line.strip()
+            if not line:
+                continue
+            try:
+                obj = json.loads(line)
+            except json.JSONDecodeError:
+                continue  # Skip non-JSON lines
+
+            if "final_answer_verified" in obj:
+                final_verdict = obj
+            elif "step" in obj:
+                step_num = int(obj["step"])
+                if step_num in seen_step_numbers:
+                    continue  # Deduplicate
+                seen_step_numbers.add(step_num)
+                steps.append(StepVerification(
+                    step_number=step_num,
+                    description=obj.get("description", ""),
+                    verified=bool(obj.get("verified", False)),
+                    note=obj.get("note", "")
+                ))
+
+        if not steps:
+            return [], final_verdict, "No step verification lines found in output"
+
+        steps.sort(key=lambda s: s.step_number)
+        return steps, final_verdict, None

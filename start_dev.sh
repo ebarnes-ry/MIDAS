@@ -27,6 +27,12 @@ fi
 echo "Activating virtual environment..."
 source .venv/bin/activate
 
+# Fix macOS SSL: point Python to certifi's CA bundle so marker-pdf can
+# download font files without hitting certificate verification errors.
+CERTIFI_PATH=$(.venv/bin/python -c "import certifi; print(certifi.where())")
+export SSL_CERT_FILE="$CERTIFI_PATH"
+export REQUESTS_CA_BUNDLE="$CERTIFI_PATH"
+
 # Check if required services are available
 echo "Checking service availability..."
 

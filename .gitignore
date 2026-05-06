@@ -167,3 +167,4 @@ data/
 !pytest.ini
 !requirements.txt
 !requirements.in
+trajectories/

@@ -12,10 +12,11 @@ from .verification_types import VerificationResult
 from ..reasoning.reasoning import ReasoningPipeline
 from ..reasoning.types import ReasoningOutput
 from src.models.manager import ModelManager
+from src.pipeline.trajectory import TrajectoryLogger
+
 
 @dataclass
 class RepairAttempt:
-    """Record of a repair attempt"""
     attempt_number: int
     repair_type: str
     reason: str
@@ -23,6 +24,7 @@ class RepairAttempt:
     processing_time: float
     error_message: Optional[str] = None
     repaired_reasoning: Optional[ReasoningOutput] = field(default=None, repr=False)
+
 
 class VerificationOrchestrator:
     """
@@ -33,111 +35,107 @@ class VerificationOrchestrator:
         self.model_manager = model_manager
         self.verification_pipeline = VerificationPipeline(model_manager)
         self.reasoning_pipeline = ReasoningPipeline(model_manager)
+        log_path = model_manager.config.get("trajectory_log_path", "trajectories/midas_trajectories.jsonl")
+        self.logger = TrajectoryLogger(log_path=log_path)
 
-    def verify_with_repair(self, reasoning_output: ReasoningOutput, max_reasoning_attempts: int = 2) -> Tuple[VerificationResult, List[RepairAttempt]]:
-        """
-        Main method that performs verification with automatic repair capabilities.
-        """
-        repair_history = []
+    def verify_with_repair(
+        self,
+        reasoning_output: ReasoningOutput,
+        max_reasoning_attempts: int = 2,
+    ) -> Tuple[VerificationResult, List[RepairAttempt]]:
+        repair_history: List[RepairAttempt] = []
         current_reasoning = reasoning_output
+        verification_result: Optional[VerificationResult] = None
+
+        problem_type = getattr(reasoning_output, "problem_type", "unknown")
+        tid = self.logger.start_trajectory(
+            problem_statement=reasoning_output.original_problem,
+            problem_type=str(problem_type),
+        )
 
         for attempt in range(max_reasoning_attempts + 1):
-            # The first loop (attempt 0) is the initial verification.
-            # Subsequent loops are for repair attempts.
             if attempt > 0:
                 print(f"--- Reasoning Repair Attempt {attempt}/{max_reasoning_attempts} ---")
                 start_time = time.time()
-                
-                # Attempt to get a repaired reasoning
                 repaired_reasoning = self._attempt_reasoning_repair(current_reasoning, verification_result)
-                
-                # Log the repair attempt
                 processing_time = time.time() - start_time
-                repair_attempt = RepairAttempt(
+
+                repair_history.append(RepairAttempt(
                     attempt_number=attempt,
                     repair_type="reasoning",
                     reason=f"Reasoning verification failed with status: {verification_result.status}",
                     success=repaired_reasoning is not None,
                     processing_time=processing_time,
-                    repaired_reasoning=repaired_reasoning
-                )
-                repair_history.append(repair_attempt)
+                    repaired_reasoning=repaired_reasoning,
+                ))
 
                 if not repaired_reasoning:
                     print("Reasoning repair failed to produce a new solution. Halting.")
-                    break # Exit the loop if repair fails
-                
+                    break
+
                 current_reasoning = repaired_reasoning
 
-            # Run verification on the current version of the reasoning
             verification_result = self.verification_pipeline.verify(current_reasoning)
 
-            # Check for an exit condition
+            self.logger.log_attempt(
+                trajectory_id=tid,
+                attempt_number=attempt + 1,
+                reasoning_output=current_reasoning,
+                verification_result=verification_result,
+                generated_code=getattr(verification_result, "generated_code", ""),
+            )
+
             if verification_result.status == "verified":
                 print("Verification successful.")
-                return verification_result, repair_history
-            
+                break
+
             if verification_result.status != "failed_reasoning":
                 print(f"Halting repair loop due to non-reasoning error: {verification_result.status}")
-                return verification_result, repair_history # Exit loop on codegen/pipeline errors
-        
-        print("Max reasoning repair attempts reached.")
-        return verification_result, repair_history # Return the last failed result
+                break
 
-    def _attempt_reasoning_repair(self, failed_reasoning: ReasoningOutput, verification_result: VerificationResult) -> Optional[ReasoningOutput]:
-        """
-        Attempts to repair reasoning by calling a dedicated repair prompt.
-        Returns the new ReasoningOutput on success, or None on failure.
-        """
+        self.logger.close_trajectory(
+            trajectory_id=tid,
+            final_status=verification_result.status if verification_result else "failed_pipeline",
+            max_attempts=max_reasoning_attempts + 1,
+        )
+
+        return verification_result, repair_history
+
+    def _attempt_reasoning_repair(
+        self,
+        failed_reasoning: ReasoningOutput,
+        verification_result: VerificationResult,
+    ) -> Optional[ReasoningOutput]:
         try:
-            # Create the specific feedback for the repair prompt
             feedback = self._create_reasoning_repair_context(verification_result)
-
-            # Call the dedicated 'reasoning_repair' task
             response = self.model_manager.call(
                 task="reasoning_repair",
                 prompt_ref="reasoning/repair@v1",
                 variables={
                     "original_problem": failed_reasoning.original_problem,
                     "failed_solution": failed_reasoning.worked_solution,
-                    "verification_feedback": feedback
+                    "verification_feedback": feedback,
                 }
             )
-
-            # The reasoning pipeline's parser can be reused to parse the output
-            # of the repair prompt, as it follows the same <think>/solution format.
-            parsed_output = self.reasoning_pipeline._parse_reasoning_response(response.content)
-
-            return ReasoningOutput(
-                original_problem=failed_reasoning.original_problem,
-                worked_solution=parsed_output["worked_solution"],
-                final_answer=parsed_output["final_answer"],
-                think_reasoning=parsed_output["think_reasoning"],
-                processing_metadata={
-                    "source": "reasoning_repair",
-                    "original_failure": verification_result.status
-                }
+            repaired = self.reasoning_pipeline._parse_structured_response(
+                response.content,
+                failed_reasoning.original_problem,
+                response,
             )
+            repaired.processing_metadata.update({
+                "source": "reasoning_repair",
+                "original_failure": verification_result.status,
+            })
+            return repaired
         except Exception as e:
             print(f"Error during reasoning repair call: {e}")
             return None
 
-    def _create_reasoning_repair_context(
-        self,
-        verification_result: VerificationResult
-    ) -> str:
-        """
-        Creates a concise feedback string for the reasoning repair prompt.
-        """
-        context_parts = []
-        for error in verification_result.errors:
-            context_parts.append(f"- {error.message}")
-
-        # Add step-specific feedback if available
+    def _create_reasoning_repair_context(self, verification_result: VerificationResult) -> str:
+        context_parts = [f"- {error.message}" for error in verification_result.errors]
         failed_steps = [s for s in verification_result.step_verifications if not s.verified]
         if failed_steps:
             context_parts.append("\nThe following steps were proven incorrect:")
             for step in failed_steps:
                 context_parts.append(f"  - Step {step.step_number}: {step.description}")
-        
         return "\n".join(context_parts)

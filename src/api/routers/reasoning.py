@@ -9,11 +9,16 @@ import time
 from fastapi import APIRouter, Depends, HTTPException
 from typing import Dict, Any
 
-from ..models.reasoning import ReasoningRequest, ReasoningResponse, ReasoningData
+from ..models.reasoning import (
+    ReasoningRequest, ReasoningResponse, ReasoningData, ReasoningStepResponse,
+    ReasoningExplainRequest, ReasoningExplainResponse, ReasoningExplainData,
+    FeedbackRequest, FeedbackResponse,
+)
 from ..dependencies.session import get_model_manager
 from src.models.manager import ModelManager
 from src.pipeline.reasoning.reasoning import ReasoningPipeline
-from src.pipeline.reasoning.types import ReasoningInput
+from src.pipeline.reasoning.feedback import FeedbackGenerator
+from src.pipeline.reasoning.types import ReasoningInput, ReasoningStep
 
 router = APIRouter()
 
@@ -52,9 +57,22 @@ async def process_reasoning(
         processing_time = time.time() - start_time
         print(f"Reasoning processing completed in {processing_time:.2f}s")
         
-        # Create response data
+        steps = [
+            ReasoningStepResponse(
+                step_number=s.step_number,
+                claim=s.claim,
+                justification=s.justification,
+                latex_expression=s.latex_expression,
+                verification_status=s.verification_status,
+                verification_note=s.verification_note,
+                feedback=s.feedback,
+            )
+            for s in reasoning_output.steps
+        ]
+
         response_data = ReasoningData(
             original_problem=reasoning_output.original_problem,
+            steps=steps,
             worked_solution=reasoning_output.worked_solution,
             final_answer=reasoning_output.final_answer,
             think_reasoning=reasoning_output.think_reasoning,
@@ -80,10 +98,6 @@ async def process_reasoning(
             timestamp=time.strftime("%Y-%m-%d %H:%M:%S"),
             data=None
         )
-# At the end of src/api/routers/reasoning.py
-
-from ..models.reasoning import ReasoningExplainRequest, ReasoningExplainResponse, ReasoningExplainData
-
 @router.post("/explain", response_model=ReasoningExplainResponse)
 async def explain_step(
     request: ReasoningExplainRequest,
@@ -116,3 +130,28 @@ async def explain_step(
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to generate explanation: {e}")
+
+
+@router.post("/feedback", response_model=FeedbackResponse)
+async def generate_step_feedback(
+    request: FeedbackRequest,
+    model_manager: ModelManager = Depends(get_model_manager)
+):
+    """
+    Generate targeted student-facing feedback for a single failed proof step.
+    Called by the frontend when a user clicks a failed step.
+    """
+    try:
+        generator = FeedbackGenerator(model_manager)
+        step = ReasoningStep(
+            step_number=request.step_number,
+            claim=request.claim,
+            justification=request.justification,
+            latex_expression=request.latex_expression,
+            verification_status=False,
+            verification_note=request.verification_note,
+        )
+        feedback = generator.generate_step_feedback(request.problem_statement, step)
+        return FeedbackResponse(success=True, data={"feedback": feedback})
+    except Exception as e:
+        return FeedbackResponse(success=False, error=str(e))

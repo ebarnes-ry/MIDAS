@@ -1,0 +1,6 @@
+task: reasoning
+version: v2
+description: >
+  Structured proof-style reasoning. Produces a list of numbered steps,
+  each with an explicit claim, LaTeX expression, and justification.
+  Required for step-level SymPy verification alignment.

@@ -6,9 +6,7 @@ import './App.css';
 function App() {
   return (
     <ErrorBoundary>
-      <div className="main-window">
-        <FullVisionPipeline />
-      </div>
+      <FullVisionPipeline />
     </ErrorBoundary>
   );
 }

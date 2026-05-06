@@ -6,6 +6,15 @@ This script starts the FastAPI server with appropriate settings for development.
 For production, you'd use a proper ASGI server deployment.
 """
 
+import os
+import certifi
+
+# On macOS, Python venvs don't inherit the system keychain, so external HTTPS
+# requests (e.g. marker-pdf downloading font files) fail with cert errors.
+# Point SSL to certifi's up-to-date CA bundle before any other imports touch it.
+os.environ.setdefault("SSL_CERT_FILE", certifi.where())
+os.environ.setdefault("REQUESTS_CA_BUNDLE", certifi.where())
+
 import uvicorn
 import sys
 from pathlib import Path
