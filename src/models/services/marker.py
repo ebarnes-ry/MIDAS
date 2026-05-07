@@ -77,6 +77,7 @@ Your goal is to ensure mathematical content is correctly identified and properly
             "output_format": self.settings.get("output_format", "json"),
             "force_ocr": self.settings.get("force_ocr", False),
             "strip_existing_ocr": self.settings.get("strip_existing_ocr", False),
+            "use_llm": self.settings.get("use_llm", False),
         }
         
         # Handle image extraction settings
