@@ -17,9 +17,10 @@ limiter = Limiter(key_func=get_remote_address)
 ALLOWED_ORIGINS = [
     "http://localhost:3000",
     "http://localhost:4321",               # Astro portfolio dev
-    "https://emmabarnes.xyz",              # portfolio — update if domain changes
+    "https://emmabarnes.xyz",
     "https://www.emmabarnes.xyz",
-    "https://midas-frontend.vercel.app",   # Vercel deploy — update after deploy
+    "https://midas-demo.vercel.app",       # update to your real Vercel URL after first deploy
+    "https://midas-frontend.vercel.app",
 ]
 
 app_state = {}

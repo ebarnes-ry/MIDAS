@@ -42,7 +42,7 @@ tasks:
       max_tokens: 8192
     extra_body:
       reasoning_format: raw
-    prompt_ref: reasoning/solve@v2
+    prompt_ref: reasoning/solve@v3
     timeout: 90
 
   reasoning_repair:
