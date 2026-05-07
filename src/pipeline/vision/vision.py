@@ -20,15 +20,23 @@ class VisionPipeline:
     #def process_input(self, vision_input: VisionInput) -> UIDocument:
     def process_input(self, vision_input: VisionInput) -> UIDocument:
         """The main entry point for processing an uploaded document."""
-        # Step 1: Use Marker for "dumb" OCR to get blocks and their raw text.
+        # Step 1: OCR with Marker (no LLM — fast path).
         marker_result = self.marker_service.convert_document(vision_input.file_path)
         if marker_result is None:
             raise ValueError("Marker processing failed")
-        
-        # Step 2: Transform Marker's messy output. The transformer does NOT get the image.
+
+        # Step 2: Transform Marker output to UIDocument.
         ui_document = UITransformer.transform_marker_json(marker_result)
 
-        # Step 3: Use the grouper on the full text to get semantically correct problems
+        # Step 3: Recover math from any blocks Marker misclassified as Picture/Figure.
+        # Marker's LLM mode would do this per-block with Gemini (slow); we do it in one
+        # Groq call across all affected blocks.
+        recovered = self._recover_image_block_text(ui_document)
+        if recovered:
+            # Append recovered math text to full_page_text so the grouper can see it.
+            ui_document.full_page_text = (ui_document.full_page_text + "\n\n" + recovered).strip()
+
+        # Step 4: Grouper identifies distinct problems from the full page text.
         problems = self.grouper.group(ui_document.full_page_text)
         
         # Step 4: Link the found problems back to the original blocks for UI highlighting
@@ -39,6 +47,53 @@ class VisionPipeline:
         ui_document.problems = self._associate_descriptions_to_problems(problems_with_blocks, ui_document)
         
         return ui_document
+
+    def _recover_image_block_text(self, doc: UIDocument) -> str:
+        """
+        Replaces Marker's per-block Gemini calls with a single Groq call.
+
+        When use_llm=False, Marker leaves Picture/Figure blocks with no text content.
+        These are often misclassified math equations. We collect all such blocks,
+        describe them in one prompt, and ask the model to extract any maths.
+
+        Returns a string to append to full_page_text, or "" if nothing to recover.
+        """
+        orphan_descriptions = [
+            block.image_description
+            for block in doc.blocks
+            if block.block_type.lower() in {"figure", "picture"}
+            and not block.latex_content
+            and block.image_description
+        ]
+
+        # No image descriptions means use_llm was off AND no fallback descriptions exist.
+        # We can't recover without image data at this stage — return empty.
+        if not orphan_descriptions:
+            return ""
+
+        combined = "\n\n".join(f"Block {i+1}: {d}" for i, d in enumerate(orphan_descriptions))
+        prompt = (
+            "The following are descriptions of image blocks extracted from a maths document. "
+            "For each block, extract any mathematical content and rewrite it with proper LaTeX "
+            "delimiters ($...$ for inline, $$...$$ for display). "
+            "Return only the extracted maths, one block per line. "
+            "If a block contains no maths, output 'NONE'.\n\n" + combined
+        )
+
+        try:
+            response = self.model_manager.call(
+                task="group_problems",   # reuses the same fast Groq text model
+                prompt_ref="vision/group_problems@v3",
+                messages_override=[
+                    {"role": "system", "content": "You are a maths OCR corrector. Extract and LaTeX-format any mathematical content from image descriptions."},
+                    {"role": "user",   "content": prompt},
+                ]
+            )
+            lines = [l.strip() for l in response.content.strip().split("\n") if l.strip() and l.strip() != "NONE"]
+            return "\n".join(lines)
+        except Exception as e:
+            print(f"[vision] image block recovery skipped: {e}")
+            return ""
 
     def _normalize_text(self, text: str) -> str:
         """A helper to clean text for robust comparison."""

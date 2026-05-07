@@ -20,16 +20,12 @@ services:
   marker:
     settings:
       output_format: json
-      use_llm: true
+      use_llm: false         # disabled — avoids slow per-block Gemini API calls
       force_ocr: true
       redo_inline_math: true
       strip_existing_ocr: true
       disable_image_extraction: true
-      debug: true
-      llm_service: gemini
-      gemini:
-        api_key: "AIzaSyAhOBn-pik-HO-jTvqLZ9oSshwBAp1duDg"
-        model: "gemini-1.5-flash"
+      debug: false
     type: marker
 
 tasks:
