@@ -36,21 +36,25 @@ tasks:
   # ── Groq tasks (fast cloud inference) ─────────────────────────────────────
   reasoning:
     provider: groq
-    model: deepseek-r1-distill-llama-70b
+    model: qwen/qwen3-32b
     params:
       temperature: 0.6
-      max_tokens: 4096
+      max_tokens: 8192
+    extra_body:
+      reasoning_format: raw
     prompt_ref: reasoning/solve@v2
-    timeout: 60
+    timeout: 90
 
   reasoning_repair:
     provider: groq
-    model: deepseek-r1-distill-llama-70b
+    model: qwen/qwen3-32b
     params:
       temperature: 0.6
-      max_tokens: 4096
+      max_tokens: 8192
+    extra_body:
+      reasoning_format: raw
     prompt_ref: reasoning/repair@v1
-    timeout: 60
+    timeout: 90
 
   verification:
     provider: groq

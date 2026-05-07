@@ -144,7 +144,8 @@ class ModelManager:
             messages=rendered,
             images=images,
             params=params,
-            schema=schema
+            schema=schema,
+            extra_body=task_cfg.get("extra_body") or None,
         )
         
         provider = self._get_provider(provider_name)

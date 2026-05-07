@@ -103,13 +103,15 @@ class OpenAIProvider(ModelProvider):
         if response_format:
             completion_params["response_format"] = response_format
         
-        # Add extra_body if provided (useful for OpenRouter-specific parameters)
-        if req.extra_body:
-            completion_params.update(req.extra_body)
-
         t0 = time.perf_counter()
         try:
-            response = self.client.chat.completions.create(**completion_params)
+            # extra_body must be passed as a kwarg to the SDK — not merged into
+            # completion_params — so the SDK can forward it in the HTTP body
+            # without triggering its own parameter validation (e.g. reasoning_format).
+            response = self.client.chat.completions.create(
+                **completion_params,
+                **({"extra_body": req.extra_body} if req.extra_body else {}),
+            )
         except APITimeoutError as e:
             raise ModelTimeout(f"OpenAI timeout: {e}") from e
         except APIError as e:
