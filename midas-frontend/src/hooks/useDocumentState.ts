@@ -1,7 +1,7 @@
 // midas-frontend/src/hooks/useDocumentState.ts
 
 import { useState, useCallback, useMemo } from 'react';
-import { DocumentState, APIDocument, ProcessingStage, APIProblem } from '../types/api';
+import { DocumentState } from '../types/api';
 import { SimpleAPIService, handleAPIError } from '../services/SimpleAPIService';
 import { CompletePipelineResponse } from '../types/api';
 

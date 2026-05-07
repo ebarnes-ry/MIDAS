@@ -96,7 +96,6 @@ const Sidebar: React.FC<{
 export const PipelineResults: React.FC<{ result: CompletePipelineResponse; onStartOver: () => void }> = ({ result, onStartOver }) => {
   const [activeTab, setActiveTab] = useState<'solution' | 'thinking' | 'code'>('solution');
   const [proofView, setProofView] = useState(false);
-  const [showRepairOpen, setShowRepairOpen] = useState(false);
 
   if (!result.data) {
     return (

@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { APIDocument, APIProblem } from '../../types/api';
-import { SmartMathRenderer } from '../ui/SmartMathRenderer';
+import { APIDocument } from '../../types/api';
 import { FormattedMathText } from '../ui/FormattedMathText';
 
 interface Props {
