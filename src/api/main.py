@@ -19,7 +19,7 @@ ALLOWED_ORIGINS = [
     "http://localhost:4321",               # Astro portfolio dev
     "https://emmabarnes.xyz",
     "https://www.emmabarnes.xyz",
-    "https://midas-demo.vercel.app",       # update to your real Vercel URL after first deploy
+    "https://midas-fawn-theta.vercel.app",
     "https://midas-frontend.vercel.app",
 ]
 
