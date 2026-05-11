@@ -405,6 +405,9 @@ class TestVerificationOrchestrator:
         # Mock successful verification
         mock_verification_result = Mock()
         mock_verification_result.status = "verified"
+        mock_verification_result.errors = []
+        mock_verification_result.step_verifications = []
+        mock_verification_result.generated_code = ""
 
         mock_verification_instance = Mock()
         mock_verification_instance.verify.return_value = mock_verification_result
@@ -434,6 +437,9 @@ class TestVerificationOrchestrator:
         mock_success_result = Mock()
         mock_success_result.status = "verified"
         mock_success_result.reasoning_output = sample_reasoning
+        mock_success_result.errors = []
+        mock_success_result.step_verifications = []
+        mock_success_result.generated_code = ""
 
         mock_verification_instance = Mock()
         mock_verification_instance.verify.side_effect = [mock_failed_result, mock_success_result]
@@ -446,15 +452,17 @@ class TestVerificationOrchestrator:
 
         # Mock reasoning pipeline parse method
         mock_reasoning_instance = Mock()
-        mock_reasoning_instance._parse_reasoning_response.return_value = {
-            "worked_solution": "Corrected solution",
-            "final_answer": "6*x + 2",
-            "think_reasoning": "Corrected reasoning"
-        }
+        mock_reasoning_instance._parse_structured_response.return_value = ReasoningOutput(
+            original_problem=sample_reasoning.original_problem,
+            worked_solution="Corrected solution",
+            final_answer="6*x + 2",
+            think_reasoning="Corrected reasoning",
+        )
         mock_reasoning_pipeline.return_value = mock_reasoning_instance
 
         # Add missing step_verifications to failed result
         mock_failed_result.step_verifications = []
+        mock_failed_result.generated_code = ""
 
         orchestrator = VerificationOrchestrator(mock_model_manager)
         result, repair_history = orchestrator.verify_with_repair(
