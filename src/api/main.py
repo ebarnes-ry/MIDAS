@@ -8,6 +8,7 @@ from typing import AsyncGenerator
 import os
 
 from .routers import vision, health, reasoning, codegen, verification, trajectories
+from src.config.profiles import resolve_config_path, validate_config_environment
 from src.models.manager import ModelManager
 
 # ── Rate limiter (shared across the app) ─────────────────────────────────────
@@ -29,8 +30,9 @@ app_state = {}
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     print("1. Starting MIDAS API server...")
-    from pathlib import Path
-    config_path = Path(__file__).parent.parent / "config" / "config.yaml"
+    config_path = resolve_config_path()
+    validate_config_environment(config_path)
+    print(f"1a. Using model config: {config_path}")
     model_manager = ModelManager(config_path=config_path)
     app_state["model_manager"] = model_manager
     print("2. ModelManager initialized successfully")
