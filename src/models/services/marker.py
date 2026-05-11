@@ -120,10 +120,15 @@ Your goal is to ensure mathematical content is correctly identified and properly
     
     def _configure_gemini(self, cli_config, gemini_config):
         """Configure Gemini-specific settings."""
-        api_key = gemini_config.get("api_key")
+        import os
+        api_key = (
+            gemini_config.get("api_key")
+            or os.environ.get("GEMINI_API_KEY")
+            or os.environ.get("GOOGLE_API_KEY")
+        )
         
         if not api_key:
-            logger.error("Marker is configured to use Gemini, but no api_key was found in the gemini settings.")
+            logger.error("Marker is configured to use Gemini, but GEMINI_API_KEY is not set.")
             return
         
         # Set API key
@@ -132,7 +137,7 @@ Your goal is to ensure mathematical content is correctly identified and properly
         
         # Set optional Gemini parameters
         if gemini_config.get("model"):
-            cli_config["gemini_model"] = gemini_config["model"]
+            cli_config["gemini_model_name"] = gemini_config["model"]
         if gemini_config.get("max_tokens"):
             cli_config["gemini_max_tokens"] = gemini_config["max_tokens"]
         if gemini_config.get("temperature") is not None:

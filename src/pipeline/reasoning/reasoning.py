@@ -15,40 +15,55 @@ _STRIP_THINK_RE = re.compile(
 )
 
 
+class ReasoningContractError(ValueError):
+    """Raised when a reasoning model response violates the structured contract."""
+
+
 class ReasoningPipeline:
     def __init__(self, manager: ModelManager):
         self.model_manager = manager
+
+    def _task_prompt_ref(self, task: str, default: str) -> str:
+        config = getattr(self.model_manager, "config", {}) or {}
+        return (
+            config.get("tasks", {})
+            .get(task, {})
+            .get("prompt_ref")
+            or default
+        )
 
     def process(self, reasoning_input: ReasoningInput) -> ReasoningOutput:
         variables = {"problem_text": reasoning_input.problem_statement}
         if reasoning_input.visual_context and reasoning_input.visual_context.strip():
             variables["visual_context"] = reasoning_input.visual_context
 
+        prompt_ref = self._task_prompt_ref("reasoning", "reasoning/solve@v2")
         response = self.model_manager.call(
             task="reasoning",
-            prompt_ref="reasoning/solve@v2",
+            prompt_ref=prompt_ref,
             variables=variables
         )
 
         return self._parse_structured_response(
             response.content,
             reasoning_input.problem_statement,
-            response
+            response,
+            prompt_ref=prompt_ref,
         )
 
     def _parse_structured_response(
         self,
         content: str,
         original_problem: str,
-        response: Any
+        response: Any,
+        prompt_ref: str = "reasoning/solve@v2",
     ) -> ReasoningOutput:
         think_match = _THINK_RE.search(content)
         think_content = think_match.group(2).strip() if think_match else ""
 
         solution_match = re.search(r'<solution>(.*?)</solution>', content, re.DOTALL)
         if not solution_match:
-            print("WARNING: Model did not produce structured v2 output. Falling back to legacy parser.")
-            return self._fallback_parse(content, original_problem, response)
+            raise ReasoningContractError("Reasoning response missing required <solution> block.")
 
         solution_text = solution_match.group(1)
 
@@ -73,12 +88,18 @@ class ReasoningPipeline:
             r'<answer>\s*<value>(.*?)</value>\s*<latex>(.*?)</latex>\s*</answer>',
             solution_text, re.DOTALL
         )
-        final_answer = answer_match.group(1).strip() if answer_match else ""
+        if not answer_match:
+            raise ReasoningContractError("Reasoning response missing required <answer> block.")
+
+        final_answer = answer_match.group(1).strip()
         final_answer_latex = answer_match.group(2).strip() if answer_match else ""
+        if not final_answer:
+            final_answer = self._extract_final_answer(final_answer_latex)
+        if not final_answer:
+            raise ReasoningContractError("Reasoning response answer has no value.")
 
         if not steps:
-            print("WARNING: No structured steps found in v2 output. Falling back.")
-            return self._fallback_parse(content, original_problem, response)
+            raise ReasoningContractError("Reasoning response contains no valid structured steps.")
 
         return ReasoningOutput(
             original_problem=original_problem,
@@ -87,7 +108,7 @@ class ReasoningPipeline:
             think_reasoning=think_content,
             processing_metadata={
                 "model_used": response.meta.get("model") if hasattr(response, "meta") else None,
-                "prompt_version": "reasoning/solve@v2",
+                "prompt_version": prompt_ref,
                 "step_count": len(steps),
                 "final_answer_latex": final_answer_latex,
                 "raw_response_length": len(content)
@@ -95,28 +116,20 @@ class ReasoningPipeline:
         )
 
     def _fallback_parse(self, content: str, original_problem: str, response: Any) -> ReasoningOutput:
-        think_match = _THINK_RE.search(content)
-        think_content = think_match.group(2).strip() if think_match else ""
-        worked = _STRIP_THINK_RE.sub('', content).strip()
-
-        return ReasoningOutput(
-            original_problem=original_problem,
-            steps=[ReasoningStep(
-                step_number=1,
-                claim=worked,
-                justification="(unstructured response — v1 fallback)",
-            )],
-            final_answer=self._extract_final_answer(worked),
-            think_reasoning=think_content,
-            processing_metadata={
-                "model_used": response.meta.get("model") if hasattr(response, "meta") else None,
-                "prompt_version": "reasoning/solve@v1-fallback",
-            }
-        )
+        raise ReasoningContractError("Unstructured reasoning fallback is disabled.")
 
     def _extract_final_answer(self, text: str) -> str:
-        boxed = re.search(r'\\boxed\{([^}]+)\}', text)
-        if boxed:
-            return boxed.group(1)
+        start = text.find('\\boxed{')
+        if start >= 0:
+            i = start + 7
+            depth = 1
+            while i < len(text) and depth > 0:
+                if text[i] == '{':
+                    depth += 1
+                elif text[i] == '}':
+                    depth -= 1
+                i += 1
+            if depth == 0:
+                return text[start + 7:i - 1]
         lines = [l.strip() for l in text.split('\n') if l.strip()]
         return lines[-1] if lines else ""

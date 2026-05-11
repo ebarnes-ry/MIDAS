@@ -19,6 +19,6 @@ You MUST output a single JSON object. The JSON object must follow this exact sch
 - `problem_text`: The complete, verbatim text of the problem.
 - `figure_references`: A list of strings identifying figures mentioned in the text.
 
-If you find a question that is clearly paired with a separate answer block, you MUST include both the question and the answer in the `problem_text`.
+If you find a question that is clearly paired with a separate answer or solution block, include ONLY the question in the `problem_text`. Do NOT include worked solutions, answers, or explanations — extract the problem statement alone.
 
 Analyze the following document text and generate the JSON now. Output ONLY the raw JSON object.

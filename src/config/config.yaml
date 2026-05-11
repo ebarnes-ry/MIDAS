@@ -10,6 +10,16 @@ providers:
     type: groq
     settings: {}          # API key loaded from GROQ_API_KEY env var
 
+  openai:
+    type: openai
+    settings: {}          # API key loaded from OPENAI_API_KEY env var
+
+  openrouter:
+    type: openai
+    settings:
+      base_url: https://openrouter.ai/api/v1
+      default_headers: null
+
   ollama_local:
     settings:
       host: http://localhost:11434
@@ -20,96 +30,99 @@ services:
   marker:
     settings:
       output_format: json
-      use_llm: false         # disabled — avoids slow per-block Gemini API calls
+      use_llm: true
       force_ocr: true
       redo_inline_math: true
       strip_existing_ocr: true
       disable_image_extraction: true
       debug: false
+      llm_service: gemini
+      gemini:
+        model: gemini-2.5-flash
     type: marker
 
 tasks:
-  # ── Groq tasks (fast cloud inference) ─────────────────────────────────────
+  # ── Canonical local tasks (Ollama + Marker/Gemini) ────────────────────────
   reasoning:
-    provider: groq
-    model: qwen/qwen3-32b
+    provider: ollama_local
+    model: phi4-mini-reasoning:latest
     params:
-      temperature: 0.6
-      max_tokens: 8192
-    extra_body:
-      reasoning_format: raw
-    prompt_ref: reasoning/solve@v3
-    timeout: 90
+      repeat_penalty: 1.1
+      seed: 42
+      temperature: 0.1
+      top_p: 0.95
+    prompt_ref: reasoning/solve@v2
+    timeout: 300
 
   reasoning_repair:
-    provider: groq
-    model: qwen/qwen3-32b
+    provider: ollama_local
+    model: phi4-mini-reasoning:latest
     params:
-      temperature: 0.6
-      max_tokens: 8192
-    extra_body:
-      reasoning_format: raw
+      temperature: 0.2
+      top_p: 0.95
     prompt_ref: reasoning/repair@v1
-    timeout: 90
+    timeout: 300
 
   verification:
-    provider: groq
-    model: llama-3.3-70b-versatile
+    provider: ollama_local
+    model: qwen2.5-coder:7b-instruct
     params:
+      seed: 42
       temperature: 0.1
-      max_tokens: 2048
+      top_p: 0.95
+      max_tokens: 2000
     prompt_ref: codegen/baseline_codegen@v6
-    timeout: 60
+    timeout: 300
     max_repair_attempts: 3
     confidence_threshold: 0.95
     min_acceptable_confidence: 0.7
     repair_temperature: 0.2
-    execution_timeout: 30
+    execution_timeout: 300
     memory_limit_mb: 512
 
   explain_step:
-    provider: groq
-    model: llama-3.3-70b-versatile
+    provider: ollama_local
+    model: qwen3:8b
     params:
-      temperature: 0.3
+      temperature: 0.1
       max_tokens: 800
     prompt_ref: reasoning/explain_step@v1
-    timeout: 30
+    timeout: 300
 
-  # ── Vision/grouping tasks — Groq (no local Ollama dependency) ───────────────
   group_problems:
-    provider: groq
-    model: llama-3.3-70b-versatile
+    provider: ollama_local
+    model: qwen3:8b
     params:
       temperature: 0.1
       max_tokens: 4096
     prompt_ref: vision/group_problems@v3
-    timeout: 30
+    timeout: 300
 
-  # validation and vision use a vision-capable model for image inputs
   vision:
-    provider: groq
-    model: meta-llama/llama-4-scout-17b-16e-instruct
+    provider: ollama_local
+    model: qwen2.5vl:7b
     params:
       max_tokens: 1000
+      seed:
       temperature: 0.1
+      top_p: 0.95
     prompt_ref: vision/analyze@v1
-    timeout: 30
+    timeout: 300
 
   validation:
-    provider: groq
-    model: meta-llama/llama-4-scout-17b-16e-instruct
+    provider: ollama_local
+    model: qwen2.5vl:7b
     params:
       temperature: 0.1
       max_tokens: 150
     prompt_ref: vision/validate@v1
-    timeout: 30
+    timeout: 300
 
   json_repair:
-    provider: groq
-    model: llama-3.3-70b-versatile
+    provider: ollama_local
+    model: qwen2.5vl:7b
     params:
       temperature: 0.1
       max_tokens: 2000
     prompt_ref: vision/repair_json@v1
-    timeout: 30
+    timeout: 300

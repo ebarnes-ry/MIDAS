@@ -100,6 +100,15 @@ class SemanticGrouper:
     def __init__(self, model_manager: ModelManager):
         self.model_manager = model_manager
 
+    def _task_prompt_ref(self, task: str, default: str) -> str:
+        config = getattr(self.model_manager, "config", {}) or {}
+        return (
+            config.get("tasks", {})
+            .get(task, {})
+            .get("prompt_ref")
+            or default
+        )
+
     def _classify_problem_type(self, problem_text: str) -> ProblemType:
         """Heuristic keyword-based classification of a math problem."""
         text = problem_text.lower()
@@ -125,9 +134,10 @@ class SemanticGrouper:
             return []
 
         try:
+            prompt_ref = self._task_prompt_ref("group_problems", "vision/group_problems@v2")
             response = self.model_manager.call(
                 task="group_problems",
-                prompt_ref="vision/group_problems@v2", # <-- Using the new v2 prompt
+                prompt_ref=prompt_ref,
                 variables={"full_page_text": full_page_text},
                 schema=GroupingResponse
             )
