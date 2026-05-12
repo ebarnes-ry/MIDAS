@@ -13,16 +13,17 @@ import pytest
 import json
 from unittest.mock import Mock, patch, MagicMock
 from pathlib import Path
+from types import SimpleNamespace
 
 from src.pipeline.verification.verification import VerificationPipeline
 from src.pipeline.verification.verification_orchestrator import VerificationOrchestrator
-from src.pipeline.verification.codegen import SymPyCodeGenerator
+from src.pipeline.verification.codegen import SymPyCodeGenerator, CodegenContractError
 from src.pipeline.verification.executor import SafeExecutor
 from src.pipeline.verification.parser import VerificationOutputParser
 from src.pipeline.verification.verification_types import (
     VerificationResult, CodeExecutionResult, StepVerification, VerificationError, ErrorType
 )
-from src.pipeline.reasoning.types import ReasoningOutput
+from src.pipeline.reasoning.types import ReasoningOutput, ReasoningStep
 from src.models.manager import ModelManager
 
 
@@ -51,12 +52,14 @@ def mock_model_manager():
     manager.config = {
         "tasks": {
             "verification": {
+                "prompt_ref": "codegen/baseline_codegen@v7",
                 "repair_temperature": 0.1,
                 "execution_timeout": 10,
                 "memory_limit_mb": 256
             }
         }
     }
+    manager.prompts = Mock()
     return manager
 
 
@@ -96,6 +99,35 @@ import json
 x = sp.Symbol('x'
 f = 3*x**2 + 2*x + 1
 '''
+
+
+@pytest.fixture
+def linear_equation_reasoning():
+    return ReasoningOutput(
+        original_problem="16 - 2t = 5t + 9",
+        steps=[
+            ReasoningStep(
+                step_number=1,
+                claim="Adding 2t to both sides gives 16 = 7t + 9.",
+                latex_expression="16 = 7t + 9",
+                justification="Addition property of equality and combining like terms.",
+            ),
+            ReasoningStep(
+                step_number=2,
+                claim="Subtracting 9 from both sides gives 7 = 7t.",
+                latex_expression="7 = 7t",
+                justification="Subtraction property of equality.",
+            ),
+            ReasoningStep(
+                step_number=3,
+                claim="Dividing both sides by 7 gives t = 1.",
+                latex_expression="t = 1",
+                justification="Division property of equality.",
+            ),
+        ],
+        final_answer="t = 1",
+        think_reasoning="Solve the linear equation by isolating t.",
+    )
 
 
 class TestSymPyCodeGenerator:
@@ -173,6 +205,38 @@ x = sp.Symbol('x')
         assert "import sympy as sp" in code
         assert metadata["model_used"] == "test_model"
         assert metadata["latency_ms"] == 100
+        assert metadata["prompt_ref"] == "codegen/baseline_codegen@v7"
+
+    def test_validate_code_contract_rejects_instance_simplify(self):
+        generator = SymPyCodeGenerator(Mock())
+        bad_code = """import sympy as sp
+import json
+x = sp.symbols('x')
+verified = bool((x - x).simplify() == 0)
+print(json.dumps({"step": 1, "description": "bad", "verified": verified, "note": ""}))
+"""
+
+        with pytest.raises(ValueError, match="do not call .simplify"):
+            generator.validate_code_contract(bad_code)
+
+    def test_generate_raises_contract_error_with_bad_simplify(
+        self, mock_model_manager, linear_equation_reasoning
+    ):
+        mock_response = Mock()
+        mock_response.content = """import sympy as sp
+import json
+lhs_step3 = 16 - 9
+lhs_step4 = 7
+verified = bool((lhs_step3 - lhs_step4).simplify() == 0)
+print(json.dumps({"step": 1, "description": "bad", "verified": verified, "note": ""}))
+"""
+        mock_response.meta = {"model": "test_model", "latency": 100}
+        mock_model_manager.call.return_value = mock_response
+
+        generator = SymPyCodeGenerator(mock_model_manager)
+
+        with pytest.raises(CodegenContractError):
+            generator.generate(linear_equation_reasoning)
 
     def test_generate_no_code_found(self, mock_model_manager, sample_reasoning):
         """Test generation when no code is found in response."""
@@ -391,6 +455,57 @@ class TestVerificationPipeline:
         assert result.status == "failed_pipeline"
         assert len(result.errors) > 0
         assert "Generation failed" in result.errors[0].message
+
+    def test_linear_equation_codegen_contract_fault_is_repaired(
+        self, mock_model_manager, linear_equation_reasoning
+    ):
+        bad_response = Mock()
+        bad_response.content = """import sympy as sp
+import json
+lhs_step3 = 16 - 9
+lhs_step4 = 7
+verified = bool((lhs_step3 - lhs_step4).simplify() == 0)
+print(json.dumps({"step": 1, "description": "bad", "verified": verified, "note": ""}))
+"""
+        bad_response.meta = {"model": "test_model", "latency": 100}
+
+        repaired_response = Mock()
+        repaired_response.content = """import sympy as sp
+import json
+import math
+
+def are_numerically_equal(a, b, tol=1e-9):
+    try:
+        return abs(float(sp.N(sp.sympify(a) - sp.sympify(b)))) < tol
+    except Exception:
+        return False
+
+def same_expr(a, b):
+    try:
+        return bool(sp.simplify(sp.sympify(a) - sp.sympify(b)) == 0)
+    except Exception:
+        return False
+
+print(json.dumps({"step": 1, "description": "Adding 2t gives 16 = 7t + 9", "verified": True, "note": "confirmed"}))
+print(json.dumps({"step": 2, "description": "Subtracting 9 gives 7 = 7t", "verified": True, "note": "confirmed"}))
+print(json.dumps({"step": 3, "description": "Dividing by 7 gives t = 1", "verified": True, "note": "confirmed"}))
+print(json.dumps({"final_answer_verified": True, "answer": "t = 1", "note": "confirmed"}))
+"""
+        repaired_response.meta = {"model": "test_model", "latency": 100}
+
+        mock_model_manager.call.side_effect = [bad_response, repaired_response]
+        mock_model_manager.prompts.load_prompt.return_value = SimpleNamespace(
+            system_template="verification system prompt"
+        )
+
+        pipeline = VerificationPipeline(mock_model_manager)
+        result = pipeline.verify(linear_equation_reasoning)
+
+        assert result.status == "verified"
+        assert result.metadata["repaired_from_codegen_fault"] is True
+        assert ".simplify()" not in result.generated_code
+        assert mock_model_manager.call.call_args_list[0].kwargs["prompt_ref"] == "codegen/baseline_codegen@v7"
+        assert mock_model_manager.call.call_args_list[1].kwargs["prompt_ref"] == "codegen/baseline_codegen@v7"
 
 
 class TestVerificationOrchestrator:

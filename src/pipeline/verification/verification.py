@@ -1,9 +1,9 @@
 from typing import Dict, Any, List, Optional
 import json
 
-from .verification_types import VerificationResult, VerificationError, ErrorType
+from .verification_types import VerificationResult, VerificationError, ErrorType, CodeExecutionResult
 from src.pipeline.reasoning.feedback import FeedbackGenerator
-from .codegen import SymPyCodeGenerator
+from .codegen import SymPyCodeGenerator, CodegenContractError
 from .executor import SafeExecutor
 from .parser import VerificationOutputParser
 from ..reasoning.types import ReasoningOutput
@@ -33,6 +33,18 @@ class VerificationPipeline:
         # --- 1. GENERATE INITIAL CODE ---
         try:
             code, metadata = self.code_generator.generate(reasoning)
+        except CodegenContractError as e:
+            exec_result = CodeExecutionResult(
+                success=False,
+                stdout="",
+                stderr=str(e),
+                execution_time=0.0,
+                exception_type="CodegenContractError",
+                exception_message=str(e),
+                exception_traceback=str(e),
+            )
+            print("Generated code violated the codegen contract. Attempting repair...")
+            return self._handle_codegen_fault(e.code, exec_result, reasoning)
         except Exception as e:
             return self._create_failure_result(reasoning, f"Initial code generation failed: {e}", generated_code="")
 
@@ -118,12 +130,16 @@ Original Code:
 {code}
 ---
 The code MUST adhere to the contract (printing step-by-step JSON results and a final JSON verdict).
-Fix the Python code so it is syntactically correct and strictly follows the contract. Do not change the underlying mathematical logic."""
+Fix the Python code so it is syntactically correct and strictly follows the contract. Do not change the underlying mathematical logic.
+
+Important SymPy rule:
+- Do not call `.simplify()` as an instance method on arbitrary expressions.
+- Use `sp.simplify(sp.sympify(a) - sp.sympify(b)) == 0` or the contract helper `same_expr(a, b)` for equality checks."""
 
     def _get_repaired_code(self, reasoning: ReasoningOutput, repair_prompt_user_content: str) -> str:
         """Calls the LLM with a specific repair prompt."""
-        # We reuse the system prompt from the v3 contract to remind the model of the rules.
-        system_prompt = self.model_manager.prompts.load_prompt("codegen/baseline_codegen@v6").system_template
+        prompt_ref = self.task_config.get("prompt_ref", "codegen/baseline_codegen@v7")
+        system_prompt = self.model_manager.prompts.load_prompt(prompt_ref).system_template
         
         messages = [
             {"role": "system", "content": system_prompt},
@@ -132,7 +148,7 @@ Fix the Python code so it is syntactically correct and strictly follows the cont
         
         response = self.model_manager.call(
             task="verification",
-            prompt_ref="codegen/baseline_codegen@v6", # Use same task config
+            prompt_ref=prompt_ref,
             variables={'reasoning': reasoning}, # For model/provider context
             messages_override=messages,
             temperature=self.repair_temperature
@@ -141,6 +157,7 @@ Fix the Python code so it is syntactically correct and strictly follows the cont
         repaired_code = self.code_generator.extract_code(response.content)
         if not repaired_code:
             raise ValueError("Repair attempt failed to generate any code.")
+        self.code_generator.validate_code_contract(repaired_code)
         return repaired_code
     
     def _annotate_reasoning_steps(

@@ -67,7 +67,7 @@ tasks:
     params:
       temperature: 0.1
       max_tokens: 2000
-    prompt_ref: codegen/baseline_codegen@v6
+    prompt_ref: codegen/baseline_codegen@v7
     timeout: 120
     max_repair_attempts: 3
     confidence_threshold: 0.95
