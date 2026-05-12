@@ -129,12 +129,21 @@ Original Code:
 ---
 {code}
 ---
-The code MUST adhere to the contract (printing step-by-step JSON results and a final JSON verdict).
-Fix the Python code so it is syntactically correct and strictly follows the contract. Do not change the underlying mathematical logic.
+The code MUST adhere to the verification contract:
+- print exactly one JSON object per step and one final verdict JSON object
+- define and use emit_step(...) for every step
+- define and use emit_final(...) exactly once for the final verdict
+- do not call print(json.dumps(...)) directly outside emit_step/emit_final
+- convert SymPy BooleanTrue/BooleanFalse and other SymPy values before JSON serialization
+- convert notes, answers, and symbolic objects to str(...) before emitting JSON
 
-Important SymPy rule:
+Important SymPy rules:
 - Do not call `.simplify()` as an instance method on arbitrary expressions.
-- Use `sp.simplify(sp.sympify(a) - sp.sympify(b)) == 0` or the contract helper `same_expr(a, b)` for equality checks."""
+- Use `sp.simplify(sp.sympify(a) - sp.sympify(b)) == 0` or the contract helper `same_expr(a, b)` for equality checks.
+- If the prior code failed with "Object of type BooleanTrue is not JSON serializable", the fix is to route every verified value through to_json_bool inside emit_step/emit_final.
+- If the prior code failed with a SyntaxError such as an unterminated string literal, rewrite descriptions/notes as safe single-line strings or assign them with repr-safe literals.
+
+Return raw Python only. No markdown fences. Do not change the underlying mathematical logic."""
 
     def _get_repaired_code(self, reasoning: ReasoningOutput, repair_prompt_user_content: str) -> str:
         """Calls the LLM with a specific repair prompt."""

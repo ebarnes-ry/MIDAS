@@ -130,6 +130,38 @@ def linear_equation_reasoning():
     )
 
 
+V7_EMIT_HELPERS = """
+def to_json_bool(value):
+    if value is True:
+        return True
+    if value is False:
+        return False
+    if value == sp.S.true:
+        return True
+    if value == sp.S.false:
+        return False
+    try:
+        return bool(value)
+    except Exception:
+        return False
+
+def emit_step(step, description, verified, note=""):
+    print(json.dumps({
+        "step": int(step),
+        "description": str(description),
+        "verified": to_json_bool(verified),
+        "note": str(note),
+    }))
+
+def emit_final(verified, answer, note=""):
+    print(json.dumps({
+        "final_answer_verified": to_json_bool(verified),
+        "answer": str(answer),
+        "note": str(note),
+    }))
+"""
+
+
 class TestSymPyCodeGenerator:
     """Test the SymPy code generation component."""
 
@@ -188,11 +220,14 @@ print("test")'''
         """Test successful code generation."""
         # Mock the model response
         mock_response = Mock()
-        mock_response.content = '''
+        mock_response.content = f'''
 ```python
 import sympy as sp
 import json
 x = sp.Symbol('x')
+{V7_EMIT_HELPERS}
+emit_step(1, "computed derivative", True, "confirmed")
+emit_final(True, "6*x + 2", "confirmed")
 ```
 '''
         mock_response.meta = {"model": "test_model", "latency": 100}
@@ -209,26 +244,53 @@ x = sp.Symbol('x')
 
     def test_validate_code_contract_rejects_instance_simplify(self):
         generator = SymPyCodeGenerator(Mock())
-        bad_code = """import sympy as sp
+        bad_code = f"""import sympy as sp
 import json
+{V7_EMIT_HELPERS}
 x = sp.symbols('x')
 verified = bool((x - x).simplify() == 0)
-print(json.dumps({"step": 1, "description": "bad", "verified": verified, "note": ""}))
+emit_step(1, "bad", verified, "")
+emit_final(True, "x", "")
 """
 
         with pytest.raises(ValueError, match="do not call .simplify"):
+            generator.validate_code_contract(bad_code)
+
+    def test_validate_code_contract_rejects_direct_json_dumps(self):
+        generator = SymPyCodeGenerator(Mock())
+        bad_code = f"""import sympy as sp
+import json
+{V7_EMIT_HELPERS}
+print(json.dumps({{"step": 1, "description": "bad", "verified": True, "note": ""}}))
+emit_final(True, "x", "")
+"""
+
+        with pytest.raises(ValueError, match="do not call json.dumps directly"):
+            generator.validate_code_contract(bad_code)
+
+    def test_validate_code_contract_requires_final_verdict(self):
+        generator = SymPyCodeGenerator(Mock())
+        bad_code = f"""import sympy as sp
+import json
+{V7_EMIT_HELPERS}
+emit_step(1, "ok", True, "")
+"""
+
+        with pytest.raises(ValueError, match="exactly one emit_final"):
             generator.validate_code_contract(bad_code)
 
     def test_generate_raises_contract_error_with_bad_simplify(
         self, mock_model_manager, linear_equation_reasoning
     ):
         mock_response = Mock()
-        mock_response.content = """import sympy as sp
+        mock_response.content = f"""import sympy as sp
 import json
+{V7_EMIT_HELPERS}
 lhs_step3 = 16 - 9
 lhs_step4 = 7
 verified = bool((lhs_step3 - lhs_step4).simplify() == 0)
-print(json.dumps({"step": 1, "description": "bad", "verified": verified, "note": ""}))
+emit_step(1, "bad", verified, "")
+emit_final(True, "t = 1", "")
 """
         mock_response.meta = {"model": "test_model", "latency": 100}
         mock_model_manager.call.return_value = mock_response
@@ -237,6 +299,26 @@ print(json.dumps({"step": 1, "description": "bad", "verified": verified, "note":
 
         with pytest.raises(CodegenContractError):
             generator.generate(linear_equation_reasoning)
+
+    def test_generate_raises_contract_error_with_syntax_error_preserving_code(
+        self, mock_model_manager, linear_equation_reasoning
+    ):
+        mock_response = Mock()
+        mock_response.content = f"""import sympy as sp
+import json
+{V7_EMIT_HELPERS}
+emit_step(1, "unterminated, True, "")
+emit_final(True, "t = 1", "")
+"""
+        mock_response.meta = {"model": "test_model", "latency": 100}
+        mock_model_manager.call.return_value = mock_response
+
+        generator = SymPyCodeGenerator(mock_model_manager)
+
+        with pytest.raises(CodegenContractError) as exc:
+            generator.generate(linear_equation_reasoning)
+        assert "unterminated" in str(exc.value)
+        assert "emit_step" in exc.value.code
 
     def test_generate_no_code_found(self, mock_model_manager, sample_reasoning):
         """Test generation when no code is found in response."""
@@ -262,6 +344,24 @@ class TestSafeExecutor:
         assert "step" in result.stdout
         assert "final_answer_verified" in result.stdout
         assert result.execution_time > 0
+
+    def test_emit_helpers_serialize_sympy_booleans(self):
+        executor = SafeExecutor(timeout=5, max_memory_mb=100)
+        code = f"""
+import sympy as sp
+import json
+{V7_EMIT_HELPERS}
+verified = (2 + 2*sp.sqrt(2)) > 0
+emit_step(1, "SymPy BooleanTrue is JSON safe", verified, "confirmed")
+emit_final(verified, "ok", "confirmed")
+"""
+
+        result = executor.execute(code)
+
+        assert result.success is True
+        lines = [json.loads(line) for line in result.stdout.strip().splitlines()]
+        assert lines[0]["verified"] is True
+        assert lines[1]["final_answer_verified"] is True
 
     def test_execute_syntax_error(self):
         """Test executing code with syntax error."""
@@ -470,7 +570,7 @@ print(json.dumps({"step": 1, "description": "bad", "verified": verified, "note":
         bad_response.meta = {"model": "test_model", "latency": 100}
 
         repaired_response = Mock()
-        repaired_response.content = """import sympy as sp
+        repaired_response.content = f"""import sympy as sp
 import json
 import math
 
@@ -486,10 +586,11 @@ def same_expr(a, b):
     except Exception:
         return False
 
-print(json.dumps({"step": 1, "description": "Adding 2t gives 16 = 7t + 9", "verified": True, "note": "confirmed"}))
-print(json.dumps({"step": 2, "description": "Subtracting 9 gives 7 = 7t", "verified": True, "note": "confirmed"}))
-print(json.dumps({"step": 3, "description": "Dividing by 7 gives t = 1", "verified": True, "note": "confirmed"}))
-print(json.dumps({"final_answer_verified": True, "answer": "t = 1", "note": "confirmed"}))
+{V7_EMIT_HELPERS}
+emit_step(1, "Adding 2t gives 16 = 7t + 9", True, "confirmed")
+emit_step(2, "Subtracting 9 gives 7 = 7t", True, "confirmed")
+emit_step(3, "Dividing by 7 gives t = 1", True, "confirmed")
+emit_final(True, "t = 1", "confirmed")
 """
         repaired_response.meta = {"model": "test_model", "latency": 100}
 

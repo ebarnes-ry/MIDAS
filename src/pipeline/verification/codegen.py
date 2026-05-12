@@ -55,6 +55,32 @@ class SymPyCodeGenerator:
 
     def validate_code_contract(self, code: str) -> None:
         tree = ast.parse(code)
+
+        parents: Dict[ast.AST, ast.AST] = {}
+        for parent in ast.walk(tree):
+            for child in ast.iter_child_nodes(parent):
+                parents[child] = parent
+
+        def enclosing_function_name(node: ast.AST) -> Optional[str]:
+            current = parents.get(node)
+            while current is not None:
+                if isinstance(current, ast.FunctionDef):
+                    return current.name
+                current = parents.get(current)
+            return None
+
+        function_names = {
+            node.name for node in ast.walk(tree)
+            if isinstance(node, ast.FunctionDef)
+        }
+        missing_helpers = {"emit_step", "emit_final"} - function_names
+        if missing_helpers:
+            raise ValueError(
+                "Generated verification code violates the v7 contract: "
+                f"missing required helper(s): {', '.join(sorted(missing_helpers))}."
+            )
+
+        emit_final_calls = 0
         for node in ast.walk(tree):
             if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
                 if node.func.attr == "simplify":
@@ -65,6 +91,26 @@ class SymPyCodeGenerator:
                         "do not call .simplify() as an instance method; use "
                         "sp.simplify(sp.sympify(a) - sp.sympify(b)) or same_expr(a, b)."
                     )
+                if (
+                    node.func.attr == "dumps"
+                    and isinstance(node.func.value, ast.Name)
+                    and node.func.value.id == "json"
+                    and enclosing_function_name(node) not in {"emit_step", "emit_final"}
+                ):
+                    raise ValueError(
+                        "Generated verification code violates the v7 contract: "
+                        "do not call json.dumps directly outside emit_step/emit_final; "
+                        "all JSON output must pass through the emit helpers."
+                    )
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
+                if node.func.id == "emit_final":
+                    emit_final_calls += 1
+
+        if emit_final_calls != 1:
+            raise ValueError(
+                "Generated verification code violates the v7 contract: "
+                "the code must contain exactly one emit_final(...) call."
+            )
 
     def generate(self, reasoning: ReasoningOutput) -> Tuple[str, Dict[str, Any]]:
         """
@@ -97,7 +143,7 @@ class SymPyCodeGenerator:
         }
         try:
             self.validate_code_contract(code)
-        except ValueError as e:
+        except (SyntaxError, ValueError) as e:
             raise CodegenContractError(str(e), code, metadata) from e
 
         return code, metadata

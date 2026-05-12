@@ -105,8 +105,8 @@ class TestVerificationPipeline:
             "tasks": {
                 "verification": {
                     "model": "qwen2.5-coder:7b-instruct",
-                    "params": {"temperature": 0.1, "max_tokens": 2000},
-                    "prompt_ref": "codegen/baseline_codegen@v2",
+                    "params": {"temperature": 0.1, "max_tokens": 5000},
+                    "prompt_ref": "codegen/baseline_codegen@v7",
                     "provider": "ollama_local",
                     "max_repair_attempts": 3,
                     "confidence_threshold": 0.95,
@@ -135,13 +135,13 @@ class TestVerificationPipeline:
                 problem = reasoning.original_problem.lower()
 
                 if "2x + 5 = 13" in problem:
-                    return self._get_linear_equation_code()
+                    return self._get_linear_equation_code(reasoning)
                 elif "x² - 5x + 6" in problem:
-                    return self._get_factoring_code()
+                    return self._get_factoring_code(reasoning)
                 elif "15 × 24" in problem:
-                    return self._get_arithmetic_code()
+                    return self._get_arithmetic_code(reasoning)
                 elif "derivative" in problem:
-                    return self._get_derivative_code()
+                    return self._get_derivative_code(reasoning)
 
             # Default response for unknown problems
             return self._get_generic_verification_code()
@@ -155,114 +155,149 @@ class TestVerificationPipeline:
 
         return VerificationPipeline(mock_model_manager)
 
-    def _get_linear_equation_code(self):
+    def _emit_helpers(self):
+        return """
+def to_json_bool(value):
+    if value is True:
+        return True
+    if value is False:
+        return False
+    if value == sp.S.true:
+        return True
+    if value == sp.S.false:
+        return False
+    try:
+        return bool(value)
+    except Exception:
+        return False
+
+def emit_step(step, description, verified, note=""):
+    print(json.dumps({
+        "step": int(step),
+        "description": str(description),
+        "verified": to_json_bool(verified),
+        "note": str(note),
+    }))
+
+def emit_final(verified, answer, note=""):
+    print(json.dumps({
+        "final_answer_verified": to_json_bool(verified),
+        "answer": str(answer),
+        "note": str(note),
+    }))
+"""
+
+    def _get_linear_equation_code(self, reasoning=None):
         """Realistic SymPy code for linear equation"""
-        return """```python
-from sympy import Symbol, Eq, solve
+        claimed_answer = reasoning.final_answer if reasoning else "x = 4"
+        return f"""```python
+import sympy as sp
+import json
+{self._emit_helpers()}
 
 # Problem Setup
-x = Symbol('x')
-equation = Eq(2*x + 5, 13)
+x = sp.Symbol('x')
+equation = sp.Eq(2*x + 5, 13)
 
 # Step Verification
-print("Step 1: Setting up equation 2x + 5 = 13")
-print(f"Step 1 verified: {equation}")
+emit_step(1, "Setting up equation 2x + 5 = 13", True, str(equation))
 
 # Answer Computation
-solution = solve(equation, x)
-computed_answer = f"x = {solution[0]}"
+solution = sp.solve(equation, x)
+computed_answer = f"x = {{solution[0]}}"
 
 # Answer Verification
-claimed_answer = "x = 4"
-answer_matches = str(solution[0]) == "4"
-print(f"Final answer matches: {answer_matches}")
-print(f"Computed: {computed_answer}, Claimed: {claimed_answer}")
+claimed_answer = {claimed_answer!r}
+answer_matches = claimed_answer == "x = 4"
+emit_final(answer_matches, claimed_answer, f"Computed: {{computed_answer}}")
 ```"""
 
     def _get_arithmetic_code(self, reasoning=None):
         """Realistic SymPy code for arithmetic"""
         claimed_answer = reasoning.final_answer if reasoning else "360"
         return f"""```python
-# Imports
-from sympy import *
+import sympy as sp
+import json
+{self._emit_helpers()}
 
 # Problem Setup
 # Calculate 15 × 24
 
 # Step Verification
-print("Step 1: Computing 15 × 24")
 result = 15 * 24
-print(f"Step 1 verified: {{result == 360}}")
+emit_step(1, "Computing 15 × 24", result == 360, f"result={{result}}")
 
 # Answer Computation
 computed_answer = result
 
 # Answer Verification
-claimed_answer = {claimed_answer}
-answer_matches = computed_answer == claimed_answer
-print(f"Final answer matches: {{answer_matches}}")
-print(f"Computed: {{computed_answer}}, Claimed: {{claimed_answer}}")
+claimed_answer = {claimed_answer!r}
+answer_matches = str(computed_answer) == claimed_answer
+emit_final(answer_matches, claimed_answer, f"Computed: {{computed_answer}}")
 ```"""
 
-    def _get_factoring_code(self):
+    def _get_factoring_code(self, reasoning=None):
         """Realistic SymPy code for factoring"""
-        return """```python
-from sympy import Symbol, factor, expand
+        claimed_answer = reasoning.final_answer if reasoning else "(x - 2)(x - 3)"
+        return f"""```python
+import sympy as sp
+import json
+{self._emit_helpers()}
 
 # Problem Setup
-x = Symbol('x')
+x = sp.Symbol('x')
 expr = x**2 - 5*x + 6
 
 # Step Verification
-print("Step 1: Factoring x² - 5x + 6")
-factored = factor(expr)
-print(f"Step 1 verified: {factored}")
+factored = sp.factor(expr)
+emit_step(1, "Factoring x² - 5x + 6", True, str(factored))
 
 # Answer Computation
 computed_answer = str(factored)
 
 # Answer Verification
-claimed_answer = "(x - 2)(x - 3)"
+claimed_answer = {claimed_answer!r}
 # Check if factorizations are equivalent
-expanded_computed = expand(factored)
-expanded_claimed = expand((x - 2)*(x - 3))
+expanded_computed = sp.expand(factored)
+expanded_claimed = sp.expand((x - 2)*(x - 3))
 answer_matches = expanded_computed == expanded_claimed
-print(f"Final answer matches: {answer_matches}")
-print(f"Computed: {computed_answer}, Claimed: {claimed_answer}")
+emit_final(answer_matches, claimed_answer, f"Computed: {{computed_answer}}")
 ```"""
 
-    def _get_derivative_code(self):
+    def _get_derivative_code(self, reasoning=None):
         """Realistic SymPy code for derivatives"""
-        return """```python
-from sympy import Symbol, diff
+        claimed_answer = reasoning.final_answer if reasoning else "3x² + 2"
+        return f"""```python
+import sympy as sp
+import json
+{self._emit_helpers()}
 
 # Problem Setup
-x = Symbol('x')
+x = sp.Symbol('x')
 expr = x**3 + 2*x
 
 # Step Verification
-print("Step 1: Finding derivative of x³ + 2x")
-derivative = diff(expr, x)
-print(f"Step 1 verified: {derivative}")
+derivative = sp.diff(expr, x)
+emit_step(1, "Finding derivative of x³ + 2x", True, str(derivative))
 
 # Answer Computation
 computed_answer = str(derivative)
 
 # Answer Verification
-claimed_answer = "3*x**2 + 2"
-answer_matches = str(derivative) == claimed_answer
-print(f"Final answer matches: {answer_matches}")
-print(f"Computed: {computed_answer}, Claimed: {claimed_answer}")
+claimed_answer = {claimed_answer!r}
+answer_matches = claimed_answer in {{"3*x**2 + 2", "3x² + 2"}}
+emit_final(answer_matches, claimed_answer, f"Computed: {{computed_answer}}")
 ```"""
 
     def _get_generic_verification_code(self):
         """Generic verification code for unknown problems"""
-        return """```python
-from sympy import *
+        return f"""```python
+import sympy as sp
+import json
+{self._emit_helpers()}
 
-print("Generic verification")
-print("Final answer matches: True")
-print("Computed: generic, Claimed: generic")
+emit_step(1, "Generic verification", True, "generic")
+emit_final(True, "generic", "generic")
 ```"""
 
     def test_distinguishes_correct_from_incorrect(self, pipeline_with_mock_llm):
@@ -298,7 +333,7 @@ print("Computed: generic, Claimed: generic")
 
         # All should complete without errors
         for result in results:
-            assert result.status in ["verified", "partial", "failed"]  # Any completion is good
+            assert result.status in ["verified", "failed_reasoning"]
             assert result.confidence_score >= 0.0
 
     def test_pipeline_error_handling(self, pipeline_with_mock_llm):
@@ -326,26 +361,14 @@ print("Computed: generic, Claimed: generic")
         """
         reasoning = ALGEBRAIC_CASES[0].create_correct_reasoning()
 
-        # Access the repair system
-        repair_system = pipeline_with_mock_llm.repair_system
-
-        # Test that repair system has the expected methods
-        assert hasattr(repair_system, 'generate_repair_prompt')
-        assert hasattr(repair_system, 'repair_strategies')
-
-        # Test repair prompt generation doesn't crash
-        from src.pipeline.verification.verification_types import VerificationError, ErrorType
-        test_error = VerificationError(
-            error_type=ErrorType.SYNTAX_ERROR,
-            message="Test error"
-        )
-
-        repair_prompt = repair_system.generate_repair_prompt(
-            "test code", [test_error], reasoning, 1
+        repair_prompt = pipeline_with_mock_llm._create_codegen_repair_prompt(
+            "test code", "Test error"
         )
 
         assert isinstance(repair_prompt, str)
         assert len(repair_prompt) > 0
+        assert "emit_step" in repair_prompt
+        assert "emit_final" in repair_prompt
 
 
 class TestMathematicalValidation:

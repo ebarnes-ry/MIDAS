@@ -34,6 +34,35 @@ def same_expr(a, b):
         return bool(sp.simplify(sp.sympify(a) - sp.sympify(b)) == 0)
     except Exception:
         return False
+
+def to_json_bool(value):
+    if value is True:
+        return True
+    if value is False:
+        return False
+    if value == sp.S.true:
+        return True
+    if value == sp.S.false:
+        return False
+    try:
+        return bool(value)
+    except Exception:
+        return False
+
+def emit_step(step, description, verified, note=""):
+    print(json.dumps({
+        "step": int(step),
+        "description": str(description),
+        "verified": to_json_bool(verified),
+        "note": str(note),
+    }))
+
+def emit_final(verified, answer, note=""):
+    print(json.dumps({
+        "final_answer_verified": to_json_bool(verified),
+        "answer": str(answer),
+        "note": str(note),
+    }))
 ```
 
 ### CRITICAL SYMPY RULES ###
@@ -63,8 +92,15 @@ For the final answer:
 
 - Only import: sympy, json, math, itertools, functools, operator, collections
 - Do not use sp.limit() on integrals with arbitrary functions
-- Convert SymPy booleans to Python bool before JSON serialisation: bool(expr)
+- NEVER call `print(json.dumps(...))` directly. Use `emit_step(...)` for every
+  step and `emit_final(...)` for the final verdict.
+- Convert all SymPy values in JSON payloads to native Python values or strings.
+  In particular, SymPy BooleanTrue/BooleanFalse must pass through `to_json_bool`.
 - Every step number in your output must match a step number from the input
+- Every input step must have exactly one `emit_step(...)` call.
+- The code must end with exactly one `emit_final(...)` call.
+- Keep generated code compact. For long proofs, prefer small helper functions
+  and loops over repeated verbose code blocks.
 - Output raw Python only; do not use markdown fences
 
 ### STEPS TO VERIFY ###
