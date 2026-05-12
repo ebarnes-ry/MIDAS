@@ -35,6 +35,16 @@ def same_expr(a, b):
     except Exception:
         return False
 
+def same_equation(a, b):
+    try:
+        a_lhs, a_rhs = a.lhs, a.rhs
+        b_lhs, b_rhs = b.lhs, b.rhs
+        same_order = same_expr(a_lhs, b_lhs) and same_expr(a_rhs, b_rhs)
+        swapped_order = same_expr(a_lhs, b_rhs) and same_expr(a_rhs, b_lhs)
+        return bool(same_order or swapped_order)
+    except Exception:
+        return False
+
 def to_json_bool(value):
     if value is True:
         return True
@@ -73,6 +83,11 @@ def emit_final(verified, answer, note=""):
 - For symbolic equality, use `same_expr(a, b)` or the explicit form
   `sp.simplify(sp.sympify(a) - sp.sympify(b)) == 0`.
 - For numeric answers, use `are_numerically_equal(a, b)`.
+- For equation-solving steps, represent each line as `sp.Eq(lhs, rhs)`.
+- Do not verify an intermediate equation by checking `same_expr(lhs, rhs)`;
+  most valid solving equations are not identities.
+- Use `same_equation(...)` when comparing equations. It treats `1 = t` and
+  `t = 1` as equivalent.
 
 ### VERIFICATION STRATEGY ###
 

@@ -131,6 +131,22 @@ def linear_equation_reasoning():
 
 
 V7_EMIT_HELPERS = """
+def same_expr(a, b):
+    try:
+        return bool(sp.simplify(sp.sympify(a) - sp.sympify(b)) == 0)
+    except Exception:
+        return False
+
+def same_equation(a, b):
+    try:
+        a_lhs, a_rhs = a.lhs, a.rhs
+        b_lhs, b_rhs = b.lhs, b.rhs
+        same_order = same_expr(a_lhs, b_lhs) and same_expr(a_rhs, b_rhs)
+        swapped_order = same_expr(a_lhs, b_rhs) and same_expr(a_rhs, b_lhs)
+        return bool(same_order or swapped_order)
+    except Exception:
+        return False
+
 def to_json_bool(value):
     if value is True:
         return True
@@ -362,6 +378,26 @@ emit_final(verified, "ok", "confirmed")
         lines = [json.loads(line) for line in result.stdout.strip().splitlines()]
         assert lines[0]["verified"] is True
         assert lines[1]["final_answer_verified"] is True
+
+    def test_same_equation_accepts_swapped_sides_for_linear_steps(self):
+        executor = SafeExecutor(timeout=5, max_memory_mb=100)
+        code = f"""
+import sympy as sp
+import json
+{V7_EMIT_HELPERS}
+t = sp.symbols('t')
+previous = sp.Eq(7, 7*t)
+after_dividing = sp.Eq(previous.lhs / 7, previous.rhs / 7)
+claimed = sp.Eq(t, 1)
+emit_step(1, "Dividing both sides by 7 yields t = 1.", same_equation(after_dividing, claimed), str(after_dividing))
+emit_final(True, "t = 1", "confirmed")
+"""
+
+        result = executor.execute(code)
+
+        assert result.success is True
+        lines = [json.loads(line) for line in result.stdout.strip().splitlines()]
+        assert lines[0]["verified"] is True
 
     def test_execute_syntax_error(self):
         """Test executing code with syntax error."""

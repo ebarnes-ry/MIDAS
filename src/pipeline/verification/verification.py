@@ -140,6 +140,7 @@ The code MUST adhere to the verification contract:
 Important SymPy rules:
 - Do not call `.simplify()` as an instance method on arbitrary expressions.
 - Use `sp.simplify(sp.sympify(a) - sp.sympify(b)) == 0` or the contract helper `same_expr(a, b)` for equality checks.
+- For equation-solving steps, compare `sp.Eq(...)` objects with `same_equation(...)` so swapped sides like `1 = t` and `t = 1` are treated as equivalent.
 - If the prior code failed with "Object of type BooleanTrue is not JSON serializable", the fix is to route every verified value through to_json_bool inside emit_step/emit_final.
 - If the prior code failed with a SyntaxError such as an unterminated string literal, rewrite descriptions/notes as safe single-line strings or assign them with repr-safe literals.
 
