@@ -2,11 +2,23 @@
 
 export const looksLikeHTML = (s: string) => /<[^>]+>/.test(s);
 
+/**
+ * Model responses sometimes contain JSON-escaped TeX after decoding, e.g.
+ * "\\(\cos x\\)" instead of "\(\cos x\)". MathJax treats the doubled
+ * backslash as a literal character, so delimiters and commands render raw.
+ *
+ * Collapse doubled backslashes only when they introduce a TeX command or
+ * delimiter. This preserves TeX line breaks like "\\ " because those are not
+ * followed by a command/delimiter character.
+ */
+export const normalizeEscapedTeX = (text: string): string =>
+  (text ?? '').replace(/\\\\(?=(?:[()[\]{}])|[A-Za-z])/g, '\\');
+
 export const hasTeXDelimiters = (s: string) =>
-  /^\s*(\$\$[\s\S]*\$\$|\$[\s\S]*\$|\\\[([\s\S]*)\\\]|\\\(([\s\S]*)\\\))\s*$/.test(s);
+  /^\s*(\$\$[\s\S]*\$\$|\$[\s\S]*\$|\\\[([\s\S]*)\\\]|\\\(([\s\S]*)\\\))\s*$/.test(normalizeEscapedTeX(s));
 
 export const ensureDelimiters = (s: string) => {
-  const t = (s ?? '').trim();
+  const t = normalizeEscapedTeX(s).trim();
   if (!t) return t;
   if (hasTeXDelimiters(t)) return t;
   const display = t.includes('\n') || /\\begin|\\frac|=/.test(t);
@@ -33,6 +45,8 @@ export const ensureDelimiters = (s: string) => {
  *      An unclosed math region at end-of-string is auto-closed with \).
  */
 export const normalizeDollarDelimiters = (text: string): string => {
+  text = normalizeEscapedTeX(text);
+
   // Pass 1: display math $$...$$ → \[...\]
   let s = text.replace(/\$\$([\s\S]*?)\$\$/g, (_m, inner) => `\\[${inner}\\]`);
 

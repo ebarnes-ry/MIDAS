@@ -59,15 +59,19 @@ export const StepCard: React.FC<StepCardProps> = ({ step, problemStatement }) =>
         )}
       </div>
 
-      <p className="text-sm text-gray-900 mb-1">{step.claim}</p>
+      <div className="text-sm text-gray-900 mb-1">
+        <SmartMathRenderer content={step.claim} />
+      </div>
 
       {step.latex_expression && (
         <div className="text-sm my-1 py-1">
-          <SmartMathRenderer content={step.latex_expression} />
+          <SmartMathRenderer content={step.latex_expression} mathOnly />
         </div>
       )}
 
-      <p className="text-xs text-gray-500 italic">{step.justification}</p>
+      <div className="text-xs text-gray-500 italic">
+        <SmartMathRenderer content={step.justification} />
+      </div>
 
       {step.verification_status === false && step.verification_note && (
         <div className="mt-2 font-mono text-xs text-red-700 bg-red-50 border border-red-100 px-2 py-1 rounded">

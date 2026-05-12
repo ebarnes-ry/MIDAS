@@ -1,10 +1,11 @@
 import React from 'react';
 import { MathJax } from 'better-react-mathjax';
 import { MathErrorBoundary } from '../vision/VisionErrorBoundary';
-import { looksLikeHTML, normalizeDollarDelimiters } from './mathml';
+import { ensureDelimiters, looksLikeHTML, normalizeDollarDelimiters } from './mathml';
 
 interface SmartMathRendererProps {
   content: string;
+  mathOnly?: boolean;
 }
 
 const sanitizeHTML = (html: string): string =>
@@ -35,12 +36,14 @@ const encodeForDOM = (text: string): string =>
  * For plain text: HTML-encode <, >, & so no tags are injected, but leave
  * $ and \ intact for MathJax to find and typeset.
  */
-export const SmartMathRenderer: React.FC<SmartMathRendererProps> = ({ content }) => {
+export const SmartMathRenderer: React.FC<SmartMathRendererProps> = ({ content, mathOnly = false }) => {
   if (!content) return null;
 
-  const html = looksLikeHTML(content)
-    ? sanitizeHTML(content)
-    : encodeForDOM(normalizeDollarDelimiters(content));
+  const normalizedContent = mathOnly ? ensureDelimiters(content) : content;
+
+  const html = looksLikeHTML(normalizedContent)
+    ? sanitizeHTML(normalizedContent)
+    : encodeForDOM(normalizeDollarDelimiters(normalizedContent));
 
   return (
     <MathErrorBoundary>

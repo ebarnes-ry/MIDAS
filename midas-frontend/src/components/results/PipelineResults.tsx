@@ -61,7 +61,7 @@ const Sidebar: React.FC<{
       <div style={{ padding: '8px 18px' }}>
         <div style={{ ...mono, fontSize: 9.5, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--ink-3)', marginBottom: 6 }}>Problem</div>
         <div style={{ fontSize: 13.5, fontStyle: 'italic', color: 'var(--ink-2)', ...serif2, padding: '4px 8px', lineHeight: 1.5 }}>
-          {problemStatement.length > 100 ? problemStatement.slice(0, 100) + '…' : problemStatement}
+          <SmartMathRenderer content={problemStatement.length > 100 ? problemStatement.slice(0, 100) + '…' : problemStatement} />
         </div>
       </div>
 
@@ -153,7 +153,7 @@ export const PipelineResults: React.FC<{ result: CompletePipelineResponse; onSta
               Problem statement
             </div>
             <div style={{ fontSize: 20, fontStyle: 'italic', color: 'var(--ink)', lineHeight: 1.45, maxWidth: 580 }}>
-              {vision.problem_statement}
+              <SmartMathRenderer content={vision.problem_statement} />
             </div>
           </div>
           <div style={{ display: 'flex', gap: 8, flexShrink: 0, marginTop: 4 }}>

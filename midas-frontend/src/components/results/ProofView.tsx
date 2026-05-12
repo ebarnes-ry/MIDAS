@@ -21,7 +21,7 @@ export const ProofView: React.FC<ProofViewProps> = ({ problemStatement, steps, f
         <span className="text-xs font-sans font-semibold uppercase tracking-wide text-gray-500 mr-2">
           Given
         </span>
-        <span className="text-sm">{problemStatement}</span>
+        <span className="text-sm"><SmartMathRenderer content={problemStatement} /></span>
       </div>
 
       <div className="space-y-2">
@@ -32,7 +32,7 @@ export const ProofView: React.FC<ProofViewProps> = ({ problemStatement, steps, f
             </span>
             <div className="flex-1">
               <div className="flex items-start gap-2 flex-wrap">
-                <span className="text-sm">{step.claim}</span>
+                <span className="text-sm"><SmartMathRenderer content={step.claim} /></span>
                 {step.verification_status === true && (
                   <span className="text-green-500 text-xs mt-0.5">✓</span>
                 )}
@@ -42,11 +42,11 @@ export const ProofView: React.FC<ProofViewProps> = ({ problemStatement, steps, f
               </div>
               {step.latex_expression && (
                 <div className="mt-0.5 text-sm text-gray-700">
-                  <SmartMathRenderer content={step.latex_expression} />
+                  <SmartMathRenderer content={step.latex_expression} mathOnly />
                 </div>
               )}
               <div className="text-xs text-gray-400 mt-0.5 font-sans italic">
-                by {step.justification}
+                by <SmartMathRenderer content={step.justification} />
               </div>
             </div>
           </div>
@@ -57,7 +57,7 @@ export const ProofView: React.FC<ProofViewProps> = ({ problemStatement, steps, f
         <span className="text-xs font-sans font-semibold uppercase tracking-wide text-gray-500 mr-2">
           Therefore
         </span>
-        <span className="text-sm font-semibold">{finalAnswer}</span>
+        <span className="text-sm font-semibold"><SmartMathRenderer content={finalAnswer} /></span>
       </div>
     </div>
   );
