@@ -36,9 +36,12 @@ services:
       strip_existing_ocr: true
       disable_image_extraction: true
       debug: false
-      llm_service: gemini
-      gemini:
-        model: gemini-2.5-flash
+      llm_service: openai
+      openai:
+        model: gpt-4.1-mini
+        base_url: https://api.openai.com/v1
+        image_format: png
+        timeout: 120
     type: marker
 
 tasks:

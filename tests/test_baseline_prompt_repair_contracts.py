@@ -51,7 +51,7 @@ def test_reasoning_pipeline_uses_configured_prompt_ref():
     assert output.processing_metadata["prompt_version"] == "reasoning/solve@custom"
 
 
-def test_reasoning_pipeline_rejects_unstructured_prose():
+def test_reasoning_pipeline_rejects_unstructured_prose(capsys):
     response = SimpleNamespace(
         content="1. Subtract 1 from both sides.\n2. Therefore x = 1.",
         meta={"model": "test-model"},
@@ -60,6 +60,13 @@ def test_reasoning_pipeline_rejects_unstructured_prose():
 
     with pytest.raises(ReasoningContractError, match="missing required <solution>"):
         ReasoningPipeline(manager).process(ReasoningInput(problem_statement="x + 1 = 2"))
+
+    captured = capsys.readouterr()
+    assert "=== REASONING CONTRACT FAILURE ===" in captured.out
+    assert "Reasoning response missing required <solution> block." in captured.out
+    assert "=== RAW REASONING MODEL OUTPUT BEGIN ===" in captured.out
+    assert "1. Subtract 1 from both sides.\n2. Therefore x = 1." in captured.out
+    assert "=== RAW REASONING MODEL OUTPUT END ===" in captured.out
 
 
 def test_reasoning_pipeline_requires_answer_block():
@@ -206,3 +213,28 @@ def test_marker_uses_gemini_api_key_when_llm_enabled(monkeypatch):
     assert config["use_llm"] is True
     assert config["gemini_api_key"] == "gemini-key"
     assert config["gemini_model_name"] == "gemini-2.5-flash"
+
+
+def test_marker_uses_openai_service_when_configured(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "openai-key")
+    service = MarkerService.__new__(MarkerService)
+    service.settings = {
+        "use_llm": True,
+        "llm_service": "openai",
+        "openai": {
+            "model": "gpt-4.1-mini",
+            "base_url": "https://api.openai.com/v1",
+            "image_format": "png",
+            "timeout": 120,
+        },
+    }
+
+    config = service._build_cli_config()
+
+    assert config["use_llm"] is True
+    assert config["llm_service"] == "marker.services.openai.OpenAIService"
+    assert config["openai_api_key"] == "openai-key"
+    assert config["openai_model"] == "gpt-4.1-mini"
+    assert config["openai_base_url"] == "https://api.openai.com/v1"
+    assert config["openai_image_format"] == "png"
+    assert config["timeout"] == 120

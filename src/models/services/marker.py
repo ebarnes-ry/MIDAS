@@ -102,8 +102,15 @@ Your goal is to ensure mathematical content is correctly identified and properly
         # Set LLM service class
         service_classes = {
             "gemini": "marker.services.gemini.GoogleGeminiService",
+            "openai": "marker.services.openai.OpenAIService",
         }
-        
+
+        if llm_service not in service_classes:
+            raise ValueError(
+                f"Unsupported Marker LLM service '{llm_service}'. "
+                f"Supported services: {', '.join(sorted(service_classes))}"
+            )
+
         cli_config["use_llm"] = True
         cli_config["llm_service"] = service_classes[llm_service]
         
@@ -117,6 +124,8 @@ Your goal is to ensure mathematical content is correctly identified and properly
         # Configure service-specific settings
         if llm_service == "gemini":
             self._configure_gemini(cli_config, service_config)
+        elif llm_service == "openai":
+            self._configure_openai(cli_config, service_config)
     
     def _configure_gemini(self, cli_config, gemini_config):
         """Configure Gemini-specific settings."""
@@ -142,6 +151,36 @@ Your goal is to ensure mathematical content is correctly identified and properly
             cli_config["gemini_max_tokens"] = gemini_config["max_tokens"]
         if gemini_config.get("temperature") is not None:
             cli_config["gemini_temperature"] = gemini_config["temperature"]
+
+    def _configure_openai(self, cli_config, openai_config):
+        """Configure Marker OpenAI service settings."""
+        import os
+        api_key = (
+            openai_config.get("api_key")
+            or os.environ.get("OPENAI_API_KEY")
+        )
+
+        if not api_key:
+            logger.error("Marker is configured to use OpenAI, but OPENAI_API_KEY is not set.")
+            return
+
+        cli_config["openai_api_key"] = api_key
+        logger.info("OpenAI API key loaded successfully for Marker")
+
+        if openai_config.get("model"):
+            cli_config["openai_model"] = openai_config["model"]
+        if openai_config.get("base_url"):
+            cli_config["openai_base_url"] = openai_config["base_url"]
+        if openai_config.get("image_format"):
+            cli_config["openai_image_format"] = openai_config["image_format"]
+        if openai_config.get("max_output_tokens"):
+            cli_config["max_output_tokens"] = openai_config["max_output_tokens"]
+        if openai_config.get("timeout"):
+            cli_config["timeout"] = openai_config["timeout"]
+        if openai_config.get("max_retries") is not None:
+            cli_config["max_retries"] = openai_config["max_retries"]
+        if openai_config.get("retry_wait_time") is not None:
+            cli_config["retry_wait_time"] = openai_config["retry_wait_time"]
     
     def convert_document(self, file_path: str):
         """
