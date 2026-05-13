@@ -1,7 +1,10 @@
+import logging
 import re
 from typing import Dict, Any, List, Optional
 from src.models.manager import ModelManager
 from .types import ReasoningInput, ReasoningOutput, ReasoningStep
+
+logger = logging.getLogger(__name__)
 
 # Matches <think>, <Think>, <thinking>, <Thinking>, <Thought>, <thought>
 # DeepSeek-R1 variants use different tag names depending on the distillation.
@@ -63,7 +66,13 @@ class ReasoningPipeline:
 
         solution_match = re.search(r'<solution>(.*?)</solution>', content, re.DOTALL)
         if not solution_match:
-            raise ReasoningContractError("Reasoning response missing required <solution> block.")
+            self._raise_contract_error(
+                "Reasoning response missing required <solution> block.",
+                content,
+                original_problem,
+                response,
+                prompt_ref,
+            )
 
         solution_text = solution_match.group(1)
 
@@ -89,17 +98,35 @@ class ReasoningPipeline:
             solution_text, re.DOTALL
         )
         if not answer_match:
-            raise ReasoningContractError("Reasoning response missing required <answer> block.")
+            self._raise_contract_error(
+                "Reasoning response missing required <answer> block.",
+                content,
+                original_problem,
+                response,
+                prompt_ref,
+            )
 
         final_answer = answer_match.group(1).strip()
         final_answer_latex = answer_match.group(2).strip() if answer_match else ""
         if not final_answer:
             final_answer = self._extract_final_answer(final_answer_latex)
         if not final_answer:
-            raise ReasoningContractError("Reasoning response answer has no value.")
+            self._raise_contract_error(
+                "Reasoning response answer has no value.",
+                content,
+                original_problem,
+                response,
+                prompt_ref,
+            )
 
         if not steps:
-            raise ReasoningContractError("Reasoning response contains no valid structured steps.")
+            self._raise_contract_error(
+                "Reasoning response contains no valid structured steps.",
+                content,
+                original_problem,
+                response,
+                prompt_ref,
+            )
 
         return ReasoningOutput(
             original_problem=original_problem,
@@ -117,6 +144,30 @@ class ReasoningPipeline:
 
     def _fallback_parse(self, content: str, original_problem: str, response: Any) -> ReasoningOutput:
         raise ReasoningContractError("Unstructured reasoning fallback is disabled.")
+
+    def _raise_contract_error(
+        self,
+        message: str,
+        content: str,
+        original_problem: str,
+        response: Any,
+        prompt_ref: str,
+    ) -> None:
+        model = response.meta.get("model") if hasattr(response, "meta") else None
+        header = (
+            "\n=== REASONING CONTRACT FAILURE ===\n"
+            f"error: {message}\n"
+            f"prompt_ref: {prompt_ref}\n"
+            f"model: {model}\n"
+            f"problem: {original_problem}\n"
+            "=== RAW REASONING MODEL OUTPUT BEGIN ==="
+        )
+        footer = "=== RAW REASONING MODEL OUTPUT END ==="
+        logger.error("%s\n%s\n%s", header, content, footer)
+        print(header)
+        print(content)
+        print(footer)
+        raise ReasoningContractError(message)
 
     def _extract_final_answer(self, text: str) -> str:
         start = text.find('\\boxed{')
