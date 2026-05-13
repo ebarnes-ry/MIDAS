@@ -1,0 +1,6 @@
+task: reasoning_repair
+version: v2
+description: >
+  Hosted OpenAI structured reasoning repair. Produces JSON schema output with
+  a corrected given statement, numbered steps, and final answer. No visible
+  scratch reasoning is requested.

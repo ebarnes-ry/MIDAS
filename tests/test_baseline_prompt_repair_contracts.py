@@ -3,7 +3,7 @@ from types import SimpleNamespace
 import pytest
 
 from src.models.services.marker import MarkerService
-from src.pipeline.reasoning.reasoning import ReasoningContractError, ReasoningPipeline
+from src.pipeline.reasoning.reasoning import ReasoningContractError, ReasoningPipeline, ReasoningResponseSchema
 from src.pipeline.reasoning.types import ReasoningInput, ReasoningOutput, ReasoningStep
 from src.pipeline.verification.verification_orchestrator import VerificationOrchestrator
 from src.pipeline.vision.grouper import SemanticGrouper
@@ -19,6 +19,23 @@ class RecordingManager:
         self.calls.append(kwargs)
         schema = kwargs.get("schema")
         if schema:
+            if schema is ReasoningResponseSchema:
+                return SimpleNamespace(
+                    parsed=schema(
+                        given="Solve \\(x + 1 = 2\\).",
+                        steps=[
+                            {
+                                "step_number": 1,
+                                "claim": "\\(x = 1\\).",
+                                "latex": "x = 1",
+                                "justification": "Subtracting \\(1\\) from both sides.",
+                            }
+                        ],
+                        answer={"value": "1", "latex": "1"},
+                    ),
+                    content='{"given":"Solve x + 1 = 2."}',
+                    meta={"model": "test-model"},
+                )
             return SimpleNamespace(
                 parsed=schema(problems=[{"problem_text": "Solve x + 1 = 2", "figure_references": []}]),
                 content="{}",
@@ -49,6 +66,45 @@ def test_reasoning_pipeline_uses_configured_prompt_ref():
     assert manager.calls[0]["prompt_ref"] == "reasoning/solve@custom"
     assert output.think_reasoning == "scratch"
     assert output.processing_metadata["prompt_version"] == "reasoning/solve@custom"
+
+
+def test_hosted_openai_reasoning_uses_json_schema_contract():
+    manager = RecordingManager(
+        {"tasks": {"reasoning": {"provider": "openai", "prompt_ref": "reasoning/solve@v3"}}},
+        SimpleNamespace(content="", meta={"model": "test-model"}),
+    )
+
+    output = ReasoningPipeline(manager).process(ReasoningInput(problem_statement="x + 1 = 2"))
+
+    assert manager.calls[0]["prompt_ref"] == "reasoning/solve@v3"
+    assert manager.calls[0]["schema"] is ReasoningResponseSchema
+    assert output.think_reasoning == ""
+    assert output.steps[0].claim == "\\(x = 1\\)."
+    assert output.final_answer == "1"
+    assert output.processing_metadata["reasoning_contract"] == "json_schema"
+
+
+def test_local_reasoning_v2_keeps_xml_contract():
+    response = SimpleNamespace(
+        content=(
+            "<solution>"
+            '<step number="1"><claim>x = 1</claim><latex>x=1</latex>'
+            "<justification>subtract 1</justification></step>"
+            "<answer><value>1</value><latex>1</latex></answer>"
+            "</solution>"
+        ),
+        meta={"model": "test-model"},
+    )
+    manager = RecordingManager(
+        {"tasks": {"reasoning": {"provider": "ollama_local", "prompt_ref": "reasoning/solve@v2"}}},
+        response,
+    )
+
+    output = ReasoningPipeline(manager).process(ReasoningInput(problem_statement="x + 1 = 2"))
+
+    assert manager.calls[0]["prompt_ref"] == "reasoning/solve@v2"
+    assert manager.calls[0]["schema"] is None
+    assert "reasoning_contract" not in output.processing_metadata
 
 
 def test_reasoning_pipeline_rejects_unstructured_prose(capsys):
@@ -185,6 +241,37 @@ def test_reasoning_repair_uses_existing_structured_parser():
 
     assert parser.called is True
     assert result is repaired
+
+
+def test_hosted_reasoning_repair_uses_configured_json_schema_contract():
+    manager = RecordingManager(
+        {"tasks": {"reasoning_repair": {"provider": "openai", "prompt_ref": "reasoning/repair@v2"}}},
+        SimpleNamespace(content="", meta={"model": "test-model"}),
+    )
+    orchestrator = VerificationOrchestrator.__new__(VerificationOrchestrator)
+    orchestrator.model_manager = manager
+    orchestrator.reasoning_pipeline = ReasoningPipeline(manager)
+
+    failed_reasoning = ReasoningOutput(
+        original_problem="x + 1 = 2",
+        steps=[ReasoningStep(step_number=1, claim="\\(x = 3\\).", justification="bad algebra")],
+        final_answer="3",
+        think_reasoning="",
+    )
+    verification_result = SimpleNamespace(
+        status="failed_reasoning",
+        errors=[SimpleNamespace(message="Answer mismatch")],
+        step_verifications=[],
+    )
+
+    result = orchestrator._attempt_reasoning_repair(failed_reasoning, verification_result)
+
+    assert manager.calls[0]["task"] == "reasoning_repair"
+    assert manager.calls[0]["prompt_ref"] == "reasoning/repair@v2"
+    assert manager.calls[0]["schema"] is ReasoningResponseSchema
+    assert result.final_answer == "1"
+    assert result.processing_metadata["source"] == "reasoning_repair"
+    assert result.processing_metadata["reasoning_contract"] == "json_schema"
 
 
 def test_marker_does_not_require_gemini_when_llm_disabled(monkeypatch):

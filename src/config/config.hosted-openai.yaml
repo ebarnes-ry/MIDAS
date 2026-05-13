@@ -51,8 +51,8 @@ tasks:
     model: gpt-4.1-mini
     params:
       temperature: 0.2
-      max_tokens: 2500
-    prompt_ref: reasoning/solve@v2
+      max_tokens: 4000
+    prompt_ref: reasoning/solve@v3
     timeout: 120
 
   reasoning_repair:
@@ -60,8 +60,8 @@ tasks:
     model: gpt-4.1-mini
     params:
       temperature: 0.2
-      max_tokens: 2500
-    prompt_ref: reasoning/repair@v1
+      max_tokens: 4000
+    prompt_ref: reasoning/repair@v2
     timeout: 120
 
   verification:

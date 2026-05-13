@@ -1,6 +1,7 @@
 import logging
 import re
 from typing import Dict, Any, List, Optional
+from pydantic import BaseModel, ConfigDict, Field
 from src.models.manager import ModelManager
 from .types import ReasoningInput, ReasoningOutput, ReasoningStep
 
@@ -22,6 +23,30 @@ class ReasoningContractError(ValueError):
     """Raised when a reasoning model response violates the structured contract."""
 
 
+class ReasoningStepSchema(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    step_number: int
+    claim: str
+    latex: str = Field(..., description="Raw LaTeX expression for this step, without prose.")
+    justification: str
+
+
+class ReasoningAnswerSchema(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    value: str
+    latex: str = Field(..., description="Raw LaTeX form of the final answer.")
+
+
+class ReasoningResponseSchema(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    given: str
+    steps: List[ReasoningStepSchema]
+    answer: ReasoningAnswerSchema
+
+
 class ReasoningPipeline:
     def __init__(self, manager: ModelManager):
         self.model_manager = manager
@@ -41,17 +66,116 @@ class ReasoningPipeline:
             variables["visual_context"] = reasoning_input.visual_context
 
         prompt_ref = self._task_prompt_ref("reasoning", "reasoning/solve@v2")
+        schema = self.schema_for_task_prompt("reasoning", prompt_ref)
         response = self.model_manager.call(
             task="reasoning",
             prompt_ref=prompt_ref,
-            variables=variables
+            variables=variables,
+            schema=schema,
         )
+
+        return self.parse_model_response(
+            response=response,
+            original_problem=reasoning_input.problem_statement,
+            prompt_ref=prompt_ref,
+            schema=schema,
+        )
+
+    def schema_for_task_prompt(self, task: str, prompt_ref: str):
+        config = getattr(self.model_manager, "config", {}) or {}
+        task_cfg = config.get("tasks", {}).get(task, {})
+        return (
+            ReasoningResponseSchema
+            if task_cfg.get("provider") == "openai"
+            and prompt_ref in {"reasoning/solve@v3", "reasoning/repair@v2"}
+            else None
+        )
+
+    def parse_model_response(
+        self,
+        response: Any,
+        original_problem: str,
+        prompt_ref: str,
+        schema: Any = None,
+    ) -> ReasoningOutput:
+        if schema is not None:
+            if isinstance(response.parsed, ReasoningResponseSchema):
+                return self._from_schema_response(
+                    response.parsed,
+                    original_problem,
+                    response,
+                    prompt_ref,
+                )
+            validation_error = response.meta.get("validation_error") if hasattr(response, "meta") else None
+            message = "Reasoning JSON schema response failed validation."
+            if validation_error:
+                message = f"{message} {validation_error}"
+            self._raise_contract_error(
+                message,
+                response.content,
+                original_problem,
+                response,
+                prompt_ref,
+            )
 
         return self._parse_structured_response(
             response.content,
-            reasoning_input.problem_statement,
+            original_problem,
             response,
             prompt_ref=prompt_ref,
+        )
+
+    def _from_schema_response(
+        self,
+        parsed: ReasoningResponseSchema,
+        original_problem: str,
+        response: Any,
+        prompt_ref: str,
+    ) -> ReasoningOutput:
+        steps = [
+            ReasoningStep(
+                step_number=step.step_number,
+                claim=step.claim.strip(),
+                latex_expression=step.latex.strip(),
+                justification=step.justification.strip(),
+            )
+            for step in parsed.steps
+        ]
+        if not steps:
+            self._raise_contract_error(
+                "Reasoning JSON schema response contains no steps.",
+                response.content,
+                original_problem,
+                response,
+                prompt_ref,
+            )
+
+        final_answer = parsed.answer.value.strip()
+        final_answer_latex = parsed.answer.latex.strip()
+        if not final_answer:
+            final_answer = self._extract_final_answer(final_answer_latex)
+        if not final_answer:
+            self._raise_contract_error(
+                "Reasoning JSON schema response answer has no value.",
+                response.content,
+                original_problem,
+                response,
+                prompt_ref,
+            )
+
+        return ReasoningOutput(
+            original_problem=original_problem,
+            steps=steps,
+            final_answer=final_answer,
+            think_reasoning="",
+            processing_metadata={
+                "model_used": response.meta.get("model") if hasattr(response, "meta") else None,
+                "prompt_version": prompt_ref,
+                "step_count": len(steps),
+                "final_answer_latex": final_answer_latex,
+                "raw_response_length": len(response.content),
+                "reasoning_contract": "json_schema",
+            },
         )
 
     def _parse_structured_response(

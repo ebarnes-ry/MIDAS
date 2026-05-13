@@ -114,20 +114,41 @@ class VerificationOrchestrator:
     ) -> Optional[ReasoningOutput]:
         try:
             feedback = self._create_reasoning_repair_context(verification_result)
+            config = getattr(self.model_manager, "config", {}) or {}
+            if not isinstance(config, dict):
+                config = {}
+            prompt_ref = (
+                config.get("tasks", {})
+                .get("reasoning_repair", {})
+                .get("prompt_ref")
+                or "reasoning/repair@v1"
+            )
+            schema = None
+            if prompt_ref == "reasoning/repair@v2" and hasattr(self.reasoning_pipeline, "schema_for_task_prompt"):
+                schema = self.reasoning_pipeline.schema_for_task_prompt("reasoning_repair", prompt_ref)
             response = self.model_manager.call(
                 task="reasoning_repair",
-                prompt_ref="reasoning/repair@v1",
+                prompt_ref=prompt_ref,
                 variables={
                     "original_problem": failed_reasoning.original_problem,
                     "failed_solution": failed_reasoning.worked_solution,
                     "verification_feedback": feedback,
-                }
+                },
+                schema=schema,
             )
-            repaired = self.reasoning_pipeline._parse_structured_response(
-                response.content,
-                failed_reasoning.original_problem,
-                response,
-            )
+            if schema is not None and hasattr(self.reasoning_pipeline, "parse_model_response"):
+                repaired = self.reasoning_pipeline.parse_model_response(
+                    response=response,
+                    original_problem=failed_reasoning.original_problem,
+                    prompt_ref=prompt_ref,
+                    schema=schema,
+                )
+            else:
+                repaired = self.reasoning_pipeline._parse_structured_response(
+                    response.content,
+                    failed_reasoning.original_problem,
+                    response,
+                )
             repaired.processing_metadata.update({
                 "source": "reasoning_repair",
                 "original_failure": verification_result.status,
