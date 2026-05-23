@@ -6,6 +6,7 @@ from src.models.services.marker import MarkerService
 from src.pipeline.reasoning.reasoning import ReasoningContractError, ReasoningPipeline, ReasoningResponseSchema
 from src.pipeline.reasoning.types import ReasoningInput, ReasoningOutput, ReasoningStep
 from src.pipeline.verification.verification_orchestrator import VerificationOrchestrator
+from src.pipeline.verification.verification_types import StepVerification
 from src.pipeline.vision.grouper import SemanticGrouper
 
 
@@ -269,6 +270,57 @@ def test_hosted_reasoning_repair_uses_configured_json_schema_contract():
     assert result.final_answer == "1"
     assert result.processing_metadata["source"] == "reasoning_repair"
     assert result.processing_metadata["reasoning_contract"] == "json_schema"
+
+
+def test_reasoning_repair_passes_targeted_feedback_payload():
+    manager = RecordingManager(
+        {"tasks": {"reasoning_repair": {"provider": "openai", "prompt_ref": "reasoning/repair@v2"}}},
+        SimpleNamespace(content="", meta={"model": "test-model"}),
+    )
+    orchestrator = VerificationOrchestrator.__new__(VerificationOrchestrator)
+    orchestrator.model_manager = manager
+    orchestrator.reasoning_pipeline = ReasoningPipeline(manager)
+
+    failed_reasoning = ReasoningOutput(
+        original_problem="Solve x + 1 = 2",
+        steps=[ReasoningStep(step_number=1, claim="x = 3", justification="bad algebra")],
+        final_answer="3",
+        think_reasoning="",
+    )
+    verification_result = SimpleNamespace(
+        status="failed_reasoning",
+        reasoning_output=failed_reasoning,
+        errors=[SimpleNamespace(message="Final answer mismatch. Answer: 3")],
+        step_verifications=[
+            StepVerification(
+                step_number=1,
+                description="x = 3",
+                verified=False,
+                note="Subtracting 1 gives x = 1, not x = 3.",
+            )
+        ],
+        metadata={
+            "final_verdict": {
+                "final_answer_verified": False,
+                "answer": "3",
+                "note": "computed=x = 1; claimed=3",
+            }
+        },
+    )
+
+    orchestrator._attempt_reasoning_repair(failed_reasoning, verification_result)
+
+    variables = manager.calls[0]["variables"]
+    repair_feedback = variables["repair_feedback"]
+    assert repair_feedback["original_problem"] == "Solve x + 1 = 2"
+    assert repair_feedback["failed_final_answer"] == "3"
+    assert repair_feedback["failed_steps"][0]["step_number"] == 1
+    assert repair_feedback["failed_steps"][0]["claim"] == "x = 3"
+    assert "x = 1" in repair_feedback["failed_steps"][0]["verifier_note"]
+    assert repair_feedback["final_mismatch"]["claimed_answer"] == "3"
+    assert repair_feedback["final_mismatch"]["computed_answer"] == "x = 1"
+    assert repair_feedback["final_mismatch"]["note"] == "computed=x = 1; claimed=3"
+    assert "Computed answer: x = 1" in variables["verification_feedback"]
 
 
 def test_reasoning_contract_error_preserves_raw_output_off_api_surface():

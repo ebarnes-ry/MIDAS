@@ -4,7 +4,8 @@ including reasoning repair when verification fails due to reasoning issues.
 """
 
 import time
-from typing import Tuple, Optional, List
+import re
+from typing import Tuple, Optional, List, Dict, Any
 from dataclasses import dataclass, field
 
 from .verification import VerificationPipeline
@@ -24,6 +25,49 @@ class RepairAttempt:
     processing_time: float
     error_message: Optional[str] = None
     repaired_reasoning: Optional[ReasoningOutput] = field(default=None, repr=False)
+
+
+@dataclass
+class ReasoningRepairFeedback:
+    original_problem: str
+    failed_solution: str
+    failed_final_answer: str
+    errors: List[str]
+    failed_steps: List[Dict[str, Any]]
+    final_mismatch: Optional[Dict[str, Optional[str]]]
+
+    def as_dict(self) -> Dict[str, Any]:
+        return {
+            "original_problem": self.original_problem,
+            "failed_solution": self.failed_solution,
+            "failed_final_answer": self.failed_final_answer,
+            "errors": self.errors,
+            "failed_steps": self.failed_steps,
+            "final_mismatch": self.final_mismatch,
+        }
+
+    def to_prompt_text(self) -> str:
+        context_parts = [f"- {error}" for error in self.errors]
+        if self.failed_steps:
+            context_parts.append("\nThe following steps were proven incorrect:")
+            for step in self.failed_steps:
+                context_parts.append(f"  - Step {step['step_number']}: {step['claim']}")
+                if step.get("verifier_note"):
+                    context_parts.append(f"    Verifier note: {step['verifier_note']}")
+
+        if self.final_mismatch:
+            context_parts.append("\nThe final answer was proven incorrect:")
+            claimed = self.final_mismatch.get("claimed_answer")
+            computed = self.final_mismatch.get("computed_answer")
+            note = self.final_mismatch.get("note")
+            if claimed:
+                context_parts.append(f"  - Claimed answer: {claimed}")
+            if computed:
+                context_parts.append(f"  - Computed answer: {computed}")
+            if note:
+                context_parts.append(f"  - Verifier note: {note}")
+
+        return "\n".join(context_parts)
 
 
 class VerificationOrchestrator:
@@ -130,7 +174,11 @@ class VerificationOrchestrator:
         verification_result: VerificationResult,
     ) -> Optional[ReasoningOutput]:
         try:
-            feedback = self._create_reasoning_repair_context(verification_result)
+            repair_feedback = self._build_reasoning_repair_feedback(
+                failed_reasoning,
+                verification_result,
+            )
+            feedback = repair_feedback.to_prompt_text()
             config = getattr(self.model_manager, "config", {}) or {}
             if not isinstance(config, dict):
                 config = {}
@@ -149,6 +197,8 @@ class VerificationOrchestrator:
                 variables={
                     "original_problem": failed_reasoning.original_problem,
                     "failed_solution": failed_reasoning.worked_solution,
+                    "failed_final_answer": failed_reasoning.final_answer,
+                    "repair_feedback": repair_feedback.as_dict(),
                     "verification_feedback": feedback,
                 },
                 schema=schema,
@@ -180,35 +230,83 @@ class VerificationOrchestrator:
             return None
 
     def _create_reasoning_repair_context(self, verification_result: VerificationResult) -> str:
-        context_parts = [f"- {error.message}" for error in verification_result.errors]
+        failed_reasoning = getattr(verification_result, "reasoning_output", None)
+        if not isinstance(failed_reasoning, ReasoningOutput):
+            failed_reasoning = ReasoningOutput(
+                original_problem="",
+                steps=[],
+                final_answer="",
+                think_reasoning="",
+            )
+        return self._build_reasoning_repair_feedback(
+            failed_reasoning,
+            verification_result,
+        ).to_prompt_text()
+
+    def _build_reasoning_repair_feedback(
+        self,
+        failed_reasoning: ReasoningOutput,
+        verification_result: VerificationResult,
+    ) -> ReasoningRepairFeedback:
+        errors = [error.message for error in verification_result.errors]
         failed_steps = [s for s in verification_result.step_verifications if not s.verified]
         result_reasoning = getattr(verification_result, "reasoning_output", None)
         raw_reasoning_steps = getattr(result_reasoning, "steps", [])
         if not isinstance(raw_reasoning_steps, list):
             raw_reasoning_steps = []
         reasoning_steps = {step.step_number: step for step in raw_reasoning_steps}
+        failed_step_feedback = []
         if failed_steps:
-            context_parts.append("\nThe following steps were proven incorrect:")
             for step in failed_steps:
                 reasoning_step = reasoning_steps.get(step.step_number)
                 claim = getattr(reasoning_step, "claim", None) or step.description
-                context_parts.append(f"  - Step {step.step_number}: {claim}")
-                if step.note:
-                    context_parts.append(f"    Verifier note: {step.note}")
+                failed_step_feedback.append({
+                    "step_number": step.step_number,
+                    "claim": claim,
+                    "verifier_note": step.note,
+                })
 
         metadata = getattr(verification_result, "metadata", {}) or {}
         final_verdict = metadata.get("final_verdict", {})
+        final_mismatch = None
         if final_verdict and final_verdict.get("final_answer_verified") is False:
-            context_parts.append("\nThe final answer was proven incorrect:")
-            if final_verdict.get("answer"):
-                context_parts.append(f"  - Claimed answer: {final_verdict['answer']}")
-            if final_verdict.get("note"):
-                context_parts.append(f"  - Verifier note: {final_verdict['note']}")
-            elif final_verdict.get("computed") is not None or final_verdict.get("claimed") is not None:
-                context_parts.append(f"  - Computed: {final_verdict.get('computed')}")
-                context_parts.append(f"  - Claimed: {final_verdict.get('claimed')}")
+            note = final_verdict.get("note")
+            computed, claimed_from_note = self._extract_final_answer_pair(note or "")
+            final_mismatch = {
+                "claimed_answer": (
+                    final_verdict.get("answer")
+                    or final_verdict.get("claimed")
+                    or claimed_from_note
+                    or failed_reasoning.final_answer
+                ),
+                "computed_answer": final_verdict.get("computed") or computed,
+                "note": note,
+            }
 
-        return "\n".join(context_parts)
+        return ReasoningRepairFeedback(
+            original_problem=failed_reasoning.original_problem,
+            failed_solution=failed_reasoning.worked_solution,
+            failed_final_answer=failed_reasoning.final_answer,
+            errors=errors,
+            failed_steps=failed_step_feedback,
+            final_mismatch=final_mismatch,
+        )
+
+    def _extract_final_answer_pair(self, note: str) -> Tuple[Optional[str], Optional[str]]:
+        computed = self._extract_note_field(note, "computed")
+        claimed = self._extract_note_field(note, "claimed")
+        return computed, claimed
+
+    def _extract_note_field(self, note: str, field_name: str) -> Optional[str]:
+        match = re.search(
+            rf"(?:^|[;,\n])\s*{re.escape(field_name)}\s*[:=]\s*(.*?)(?=\s*(?:[;,\n]\s*\w+\s*[:=]|$))",
+            note,
+            flags=re.IGNORECASE,
+        )
+        if not match:
+            return None
+        value = match.group(1).strip()
+        return value or None
 
     def _create_contract_failure_result(
         self,

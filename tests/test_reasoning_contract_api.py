@@ -10,6 +10,9 @@ from src.api.dependencies.session import DocumentSession, get_model_manager, get
 from src.api.main import create_app
 from src.models.manager import ModelManager
 from src.pipeline.reasoning.reasoning import ReasoningContractError
+from src.pipeline.reasoning.types import ReasoningOutput, ReasoningStep
+from src.pipeline.verification.verification_orchestrator import RepairAttempt
+from src.pipeline.verification.verification_types import VerificationResult
 from src.pipeline.vision.types import UIDocument, VisionFinalOutput
 
 
@@ -113,3 +116,103 @@ def test_complete_contract_error_is_typed_non_500_response():
     assert raw_output not in response.text
     trajectory_logger.return_value.log_attempt.assert_called_once()
     trajectory_logger.return_value.close_trajectory.assert_called_once()
+
+
+def test_complete_uses_repaired_reasoning_fields_when_repair_succeeds():
+    app = create_app()
+    model_manager = Mock(spec=ModelManager)
+    model_manager.config = {}
+    app.dependency_overrides[get_model_manager] = lambda: model_manager
+
+    png = io.BytesIO()
+    Image.new("RGB", (2, 2), "white").save(png, format="PNG")
+    image_base64 = base64.b64encode(png.getvalue()).decode("ascii")
+    ui_document = UIDocument(
+        blocks=[],
+        full_page_text="Solve x + 1 = 2.",
+        images={},
+        metadata={},
+        dimensions=(2, 2),
+        problems=[],
+    )
+    session = DocumentSession(
+        document_id="doc-1",
+        ui_document=ui_document,
+        original_image_base64=image_base64,
+        created_at=datetime.utcnow(),
+        last_accessed=datetime.utcnow(),
+        processing_metadata={},
+    )
+    session_manager = Mock()
+    session_manager.get_session.return_value = session
+    app.dependency_overrides[get_session_manager] = lambda: session_manager
+    client = TestClient(app)
+
+    initial_reasoning = ReasoningOutput(
+        original_problem="Solve x + 1 = 2.",
+        steps=[ReasoningStep(1, "x = 3", "bad algebra", "x = 3")],
+        final_answer="3",
+        think_reasoning="initial trace",
+        processing_metadata={"attempt": "initial"},
+    )
+    repaired_reasoning = ReasoningOutput(
+        original_problem="Solve x + 1 = 2.",
+        steps=[ReasoningStep(1, "x = 1", "Subtract 1 from both sides.", "x = 1")],
+        final_answer="1",
+        think_reasoning="repaired trace",
+        processing_metadata={"attempt": "repaired"},
+    )
+    verification_result = VerificationResult(
+        status="verified",
+        confidence_score=1.0,
+        reasoning_output=repaired_reasoning,
+        generated_code="",
+        answer_match=True,
+        errors=[],
+        metadata={"final_verdict": {"final_answer_verified": True, "answer": "1", "note": ""}},
+    )
+    repair_history = [
+        RepairAttempt(
+            attempt_number=1,
+            repair_type="reasoning",
+            reason="Reasoning verification failed with status: failed_reasoning",
+            success=True,
+            processing_time=0.1,
+            repaired_reasoning=repaired_reasoning,
+        )
+    ]
+
+    with (
+        patch("src.api.routers.vision.VisionPipeline.process_selection") as process_selection,
+        patch("src.api.routers.vision.ReasoningPipeline.process") as process_reasoning,
+        patch("src.api.routers.vision.VerificationOrchestrator") as orchestrator_class,
+    ):
+        process_selection.return_value = VisionFinalOutput(
+            problem_statement="Solve x + 1 = 2.",
+            visual_context=None,
+            source_metadata={"problem_type": "algebra"},
+        )
+        process_reasoning.return_value = initial_reasoning
+        orchestrator = Mock()
+        orchestrator.verify_with_repair.return_value = (verification_result, repair_history)
+        orchestrator_class.return_value = orchestrator
+
+        response = client.post(
+            "/api/v1/vision/complete",
+            json={
+                "document_id": "doc-1",
+                "problem_id": "problem-1",
+                "edited_latex": "Solve x + 1 = 2.",
+            },
+        )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["success"] is True
+    assert payload["data"]["reasoning"]["final_answer"] == "1"
+    assert payload["data"]["reasoning"]["worked_solution"].startswith("1. x = 1")
+    assert payload["data"]["reasoning"]["think_reasoning"] == "repaired trace"
+    assert payload["data"]["reasoning"]["metadata"]["attempt"] == "repaired"
+    assert payload["data"]["verification"]["final_answer"] == "1"
+    assert payload["data"]["verification"]["repair_history"][0]["final_answer"] == "3"
+    assert payload["data"]["verification"]["repair_history"][1]["final_answer"] == "1"

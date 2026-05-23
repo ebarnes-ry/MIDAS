@@ -386,6 +386,7 @@ async def complete_pipeline(request: Request, body: UserSelectionRequest, sessio
         )
         verification_time = time.time() - verification_start_time
         total_processing_time = time.time() - full_start_time
+        final_reasoning = verification_result.reasoning_output
         def _step_dict(s):
             return {
                 "step_number": s.step_number,
@@ -420,7 +421,7 @@ async def complete_pipeline(request: Request, body: UserSelectionRequest, sessio
         response_data = {
             "vision": {"problem_statement": vision_output.problem_statement, "visual_context": vision_output.visual_context, "processing_time": vision_time, "metadata": vision_output.source_metadata},
             "reasoning": {
-                "original_problem": reasoning_output.original_problem,
+                "original_problem": final_reasoning.original_problem,
                 "steps": [
                     {
                         "step_number": s.step_number,
@@ -431,18 +432,18 @@ async def complete_pipeline(request: Request, body: UserSelectionRequest, sessio
                         "verification_note": s.verification_note,
                         "feedback": s.feedback,
                     }
-                    for s in verification_result.reasoning_output.steps
+                    for s in final_reasoning.steps
                 ],
-                "worked_solution": reasoning_output.worked_solution,
-                "final_answer": reasoning_output.final_answer,
-                "think_reasoning": reasoning_output.think_reasoning,
+                "worked_solution": final_reasoning.worked_solution,
+                "final_answer": final_reasoning.final_answer,
+                "think_reasoning": final_reasoning.think_reasoning,
                 "processing_time": reasoning_time,
-                "metadata": reasoning_output.processing_metadata,
+                "metadata": final_reasoning.processing_metadata,
             },
             "verification": {
-                "original_problem": verification_result.reasoning_output.original_problem,
-                "worked_solution": verification_result.reasoning_output.worked_solution,
-                "final_answer": verification_result.reasoning_output.final_answer,
+                "original_problem": final_reasoning.original_problem,
+                "worked_solution": final_reasoning.worked_solution,
+                "final_answer": final_reasoning.final_answer,
                 "generated_code": verification_result.generated_code,
                 "processing_time": verification_time,
                 "status": verification_result.status,

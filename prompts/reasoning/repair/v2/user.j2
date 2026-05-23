@@ -12,4 +12,31 @@ The following mathematical solution was found to be incorrect. Provide a correct
 {{ verification_feedback }}
 ---
 
+**TARGETED REPAIR DATA:**
+Original problem:
+{{ repair_feedback.original_problem }}
+
+Failed final answer:
+{{ repair_feedback.failed_final_answer }}
+
+{% if repair_feedback.failed_steps %}
+Failed steps:
+{% for step in repair_feedback.failed_steps %}
+- Step {{ step.step_number }} claim: {{ step.claim }}
+  Verifier note: {{ step.verifier_note or "No verifier note provided." }}
+{% endfor %}
+{% else %}
+Failed steps: None reported.
+{% endif %}
+
+{% if repair_feedback.final_mismatch %}
+Final answer mismatch:
+- Claimed answer: {{ repair_feedback.final_mismatch.claimed_answer or "Unknown" }}
+- Computed answer: {{ repair_feedback.final_mismatch.computed_answer or "Unknown" }}
+- Verifier note: {{ repair_feedback.final_mismatch.note or "No verifier note provided." }}
+{% else %}
+Final answer mismatch: None reported.
+{% endif %}
+---
+
 Return only the corrected structured solution object required by the response schema.
