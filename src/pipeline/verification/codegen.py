@@ -7,10 +7,11 @@ from ..reasoning.types import ReasoningOutput
 
 
 class CodegenContractError(ValueError):
-    def __init__(self, message: str, code: str, metadata: Dict[str, Any]):
+    def __init__(self, message: str, code: str, metadata: Dict[str, Any], category: str = "contract"):
         super().__init__(message)
         self.code = code
         self.metadata = metadata
+        self.category = category
 
 
 class SymPyCodeGenerator:
@@ -143,7 +144,9 @@ class SymPyCodeGenerator:
         }
         try:
             self.validate_code_contract(code)
-        except (SyntaxError, ValueError) as e:
-            raise CodegenContractError(str(e), code, metadata) from e
+        except SyntaxError as e:
+            raise CodegenContractError(str(e), code, metadata, category="syntax") from e
+        except ValueError as e:
+            raise CodegenContractError(str(e), code, metadata, category="contract") from e
 
         return code, metadata

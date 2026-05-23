@@ -588,9 +588,102 @@ class TestVerificationPipeline:
         pipeline = VerificationPipeline(mock_model_manager)
         result = pipeline.verify(sample_reasoning)
 
-        assert result.status == "failed_pipeline"
+        assert result.status == "failed_codegen"
         assert len(result.errors) > 0
         assert "Generation failed" in result.errors[0].message
+        assert result.metadata["codegen_failure"] is True
+
+    def test_codegen_contract_repair_failure_returns_failed_contract(
+        self, mock_model_manager, sample_reasoning
+    ):
+        pipeline = VerificationPipeline(mock_model_manager)
+        pipeline.code_generator.generate = Mock(
+            side_effect=CodegenContractError(
+                "Generated verification code violates the v7 contract.",
+                "print('bad')",
+                {},
+            )
+        )
+        pipeline._get_repaired_code = Mock(
+            side_effect=ValueError("Repair attempt failed to generate any code.")
+        )
+
+        result = pipeline.verify(sample_reasoning)
+
+        assert result.status == "failed_contract"
+        assert result.errors[0].error_type == ErrorType.CONTRACT_VIOLATION
+        assert result.metadata["contract_failure"] is True
+
+    def test_codegen_syntax_repair_failure_returns_failed_codegen(
+        self, mock_model_manager, sample_reasoning
+    ):
+        pipeline = VerificationPipeline(mock_model_manager)
+        pipeline.code_generator.generate = Mock(
+            side_effect=CodegenContractError(
+                "unterminated string literal",
+                "emit_step(1, \"unterminated)",
+                {},
+                category="syntax",
+            )
+        )
+        pipeline._get_repaired_code = Mock(
+            side_effect=ValueError("Repair attempt failed to generate any code.")
+        )
+
+        result = pipeline.verify(sample_reasoning)
+
+        assert result.status == "failed_codegen"
+        assert result.errors[0].error_type == ErrorType.SYNTAX_ERROR
+        assert result.metadata["codegen_failure"] is True
+
+    def test_runtime_repair_failure_returns_failed_codegen(
+        self, mock_model_manager, sample_reasoning
+    ):
+        pipeline = VerificationPipeline(mock_model_manager)
+        pipeline.code_generator.generate = Mock(return_value=("x = undefined_variable", {}))
+        pipeline.executor.execute = Mock(
+            return_value=CodeExecutionResult(
+                success=False,
+                stdout="",
+                stderr="NameError: name 'undefined_variable' is not defined",
+                execution_time=0.01,
+                exception_type="NameError",
+                exception_message="name 'undefined_variable' is not defined",
+            )
+        )
+        pipeline._get_repaired_code = Mock(
+            side_effect=ValueError("Repair attempt failed to generate any code.")
+        )
+
+        result = pipeline.verify(sample_reasoning)
+
+        assert result.status == "failed_codegen"
+        assert result.errors[0].error_type == ErrorType.RUNTIME_ERROR
+        assert result.metadata["codegen_failure"] is True
+
+    def test_sympy_limitation_returns_unsupported_without_repair(
+        self, mock_model_manager, sample_reasoning
+    ):
+        pipeline = VerificationPipeline(mock_model_manager)
+        pipeline.code_generator.generate = Mock(return_value=("raise NotImplementedError()", {}))
+        pipeline.executor.execute = Mock(
+            return_value=CodeExecutionResult(
+                success=False,
+                stdout="",
+                stderr="NotImplementedError: no algorithms are implemented to solve this",
+                execution_time=0.01,
+                exception_type="NotImplementedError",
+                exception_message="no algorithms are implemented to solve this",
+            )
+        )
+        pipeline._get_repaired_code = Mock()
+
+        result = pipeline.verify(sample_reasoning)
+
+        assert result.status == "unsupported"
+        assert result.errors[0].error_type == ErrorType.SYMBOLIC_FAILURE
+        assert result.metadata["unsupported"] is True
+        pipeline._get_repaired_code.assert_not_called()
 
     def test_linear_equation_codegen_contract_fault_is_repaired(
         self, mock_model_manager, linear_equation_reasoning
@@ -753,7 +846,14 @@ class TestVerificationIntegration:
 
             # Basic assertions
             assert result is not None
-            assert result.status in ["verified", "failed_reasoning", "failed_codegen", "failed_pipeline"]
+            assert result.status in [
+                "verified",
+                "failed_reasoning",
+                "failed_codegen",
+                "failed_contract",
+                "unsupported",
+                "failed_pipeline",
+            ]
             assert result.confidence_score >= 0.0
             assert result.reasoning_output == sample_reasoning
 

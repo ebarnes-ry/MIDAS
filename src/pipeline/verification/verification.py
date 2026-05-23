@@ -1,7 +1,13 @@
 from typing import Dict, Any, List, Optional
 import json
 
-from .verification_types import VerificationResult, VerificationError, ErrorType, CodeExecutionResult
+from .verification_types import (
+    CodeExecutionResult,
+    ErrorType,
+    VerificationError,
+    VerificationResult,
+    VerificationStatus,
+)
 from src.pipeline.reasoning.feedback import FeedbackGenerator
 from .codegen import SymPyCodeGenerator, CodegenContractError
 from .executor import SafeExecutor
@@ -34,6 +40,16 @@ class VerificationPipeline:
         try:
             code, metadata = self.code_generator.generate(reasoning)
         except CodegenContractError as e:
+            fault_status = (
+                VerificationStatus.FAILED_CODEGEN
+                if e.category == "syntax"
+                else VerificationStatus.FAILED_CONTRACT
+            )
+            fault_error_type = (
+                ErrorType.SYNTAX_ERROR
+                if e.category == "syntax"
+                else ErrorType.CONTRACT_VIOLATION
+            )
             exec_result = CodeExecutionResult(
                 success=False,
                 stdout="",
@@ -44,9 +60,22 @@ class VerificationPipeline:
                 exception_traceback=str(e),
             )
             print("Generated code violated the codegen contract. Attempting repair...")
-            return self._handle_codegen_fault(e.code, exec_result, reasoning)
+            return self._handle_codegen_fault(
+                e.code,
+                exec_result,
+                reasoning,
+                fault_status=fault_status,
+                fault_error_type=fault_error_type,
+            )
         except Exception as e:
-            return self._create_failure_result(reasoning, f"Initial code generation failed: {e}", generated_code="")
+            return self._create_failure_result(
+                reasoning,
+                f"Initial code generation failed: {e}",
+                generated_code="",
+                status=VerificationStatus.FAILED_CODEGEN,
+                error_type=ErrorType.RUNTIME_ERROR,
+                metadata={"codegen_failure": True},
+            )
 
         # --- 2. EXECUTE THE CODE ---
         execution_result = self.executor.execute(code)
@@ -54,21 +83,52 @@ class VerificationPipeline:
         # --- 3. ANALYZE THE RESULT ---
         if not execution_result.success:
             # Execution crashed (SyntaxError, RuntimeError, Timeout). This is a CODEGEN FAULT.
+            if self._is_unsupported_error(execution_result.stderr, execution_result):
+                print("Execution failed due to unsupported symbolic operation.")
+                return self._create_failure_result(
+                    reasoning,
+                    self._execution_error_message(execution_result),
+                    generated_code=code,
+                    status=VerificationStatus.UNSUPPORTED,
+                    error_type=ErrorType.SYMBOLIC_FAILURE,
+                    metadata={"unsupported": True, "unsupported_source": "sympy_execution"},
+                    execution_result=execution_result,
+                )
             print("Execution failed. Diagnosed as CODEGEN FAULT. Attempting repair...")
-            return self._handle_codegen_fault(code, execution_result, reasoning)
+            return self._handle_codegen_fault(
+                code,
+                execution_result,
+                reasoning,
+                fault_status=VerificationStatus.FAILED_CODEGEN,
+                fault_error_type=self._error_type_for_execution(execution_result),
+            )
 
         # --- 4. PARSE THE OUTPUT (CONTRACT ADHERENCE) ---
         steps, final_verdict, parsing_error = self.output_parser.parse(execution_result)
         
         if parsing_error:
             # Output did not adhere to the JSON contract. This is a CODEGEN FAULT.
-            print(f"Parsing failed due to contract violation: {parsing_error}. Diagnosed as CODEGEN FAULT. Attempting repair...")
-            return self._handle_codegen_fault(code, execution_result, reasoning, f"Output parsing failed: {parsing_error}")
+            print(f"Parsing failed due to contract violation: {parsing_error}. Attempting repair...")
+            return self._handle_codegen_fault(
+                code,
+                execution_result,
+                reasoning,
+                f"Output parsing failed: {parsing_error}",
+                fault_status=VerificationStatus.FAILED_CONTRACT,
+                fault_error_type=ErrorType.CONTRACT_VIOLATION,
+            )
 
         if not final_verdict:
             # Contract violation: missing the final verdict JSON. This is a CODEGEN FAULT.
-            print("Missing final verdict. Diagnosed as CODEGEN FAULT. Attempting repair...")
-            return self._handle_codegen_fault(code, execution_result, reasoning, "Missing final_answer_verified JSON object in output.")
+            print("Missing final verdict. Attempting contract repair...")
+            return self._handle_codegen_fault(
+                code,
+                execution_result,
+                reasoning,
+                "Missing final_answer_verified JSON object in output.",
+                fault_status=VerificationStatus.FAILED_CONTRACT,
+                fault_error_type=ErrorType.CONTRACT_VIOLATION,
+            )
 
         # --- 5. CHECK VERIFICATION RESULTS ---
         all_steps_ok = all(s.verified for s in steps)
@@ -77,17 +137,26 @@ class VerificationPipeline:
         if all_steps_ok and answer_ok:
             # Everything passed. This is a success.
             print("Verification successful.")
-            return self._create_final_result(reasoning, code, execution_result, steps, final_verdict, status="verified")
+            return self._create_final_result(reasoning, code, execution_result, steps, final_verdict, status=VerificationStatus.VERIFIED)
         else:
             # Code ran but proved the math wrong. This is a REASONING FAULT.
             print("Verification failed. Diagnosed as REASONING FAULT.")
-            return self._create_final_result(reasoning, code, execution_result, steps, final_verdict, status="failed_reasoning")
+            return self._create_final_result(reasoning, code, execution_result, steps, final_verdict, status=VerificationStatus.FAILED_REASONING)
 
-    def _handle_codegen_fault(self, original_code: str, exec_result: Any, reasoning: ReasoningOutput, extra_error: str = None) -> VerificationResult:
+    def _handle_codegen_fault(
+        self,
+        original_code: str,
+        exec_result: Any,
+        reasoning: ReasoningOutput,
+        extra_error: str = None,
+        *,
+        fault_status: VerificationStatus = VerificationStatus.FAILED_CODEGEN,
+        fault_error_type: ErrorType = ErrorType.RUNTIME_ERROR,
+    ) -> VerificationResult:
         """
         Attempts a single, targeted repair of faulty code generation.
         """
-        error_message = exec_result.stderr or extra_error or "Unknown execution error."
+        error_message = extra_error or self._execution_error_message(exec_result)
         
         # Create a specific repair prompt
         repair_prompt = self._create_codegen_repair_prompt(original_code, error_message)
@@ -110,13 +179,34 @@ class VerificationPipeline:
                  raise RuntimeError("Repaired code still violates the verification contract.")
             
             # Check the logic of the now-working code
-            status = "verified" if all(s.verified for s in steps) and final_verdict.get("final_answer_verified") else "failed_reasoning"
+            status = VerificationStatus.VERIFIED if all(s.verified for s in steps) and final_verdict.get("final_answer_verified") else VerificationStatus.FAILED_REASONING
             return self._create_final_result(reasoning, repaired_code, new_exec_result, steps, final_verdict, status, repaired_from_codegen_fault=True)
 
         except Exception as e:
-            return self._create_failure_result(reasoning, f"Codegen fault repair failed: {e}", generated_code=original_code, errors=[
-                VerificationError(error_type=ErrorType.SYNTAX_ERROR, message=error_message)
-            ])
+            if self._is_unsupported_error(error_message, exec_result) or self._is_unsupported_error(str(e)):
+                return self._create_failure_result(
+                    reasoning,
+                    f"Unsupported verification target: {e}",
+                    generated_code=original_code,
+                    status=VerificationStatus.UNSUPPORTED,
+                    error_type=ErrorType.SYMBOLIC_FAILURE,
+                    metadata={"unsupported": True, "unsupported_source": "codegen_repair"},
+                    execution_result=exec_result if isinstance(exec_result, CodeExecutionResult) else None,
+                )
+            return self._create_failure_result(
+                reasoning,
+                f"Codegen fault repair failed: {e}",
+                generated_code=original_code,
+                errors=[
+                    VerificationError(error_type=fault_error_type, message=error_message)
+                ],
+                status=fault_status,
+                metadata={
+                    "codegen_failure": fault_status == VerificationStatus.FAILED_CODEGEN,
+                    "contract_failure": fault_status == VerificationStatus.FAILED_CONTRACT,
+                },
+                execution_result=exec_result if isinstance(exec_result, CodeExecutionResult) else None,
+            )
 
     def _create_codegen_repair_prompt(self, code: str, error: str) -> str:
         return f"""The following Python code failed to execute or violated the verification contract.
@@ -192,7 +282,7 @@ Return raw Python only. No markdown fences. Do not change the underlying mathema
         confidence = self._calculate_confidence(exec_result, steps, final_verdict)
         errors = []
         
-        if status == "failed_reasoning":
+        if status == VerificationStatus.FAILED_REASONING:
             failed_steps = [s for s in steps if not s.verified]
             if failed_steps:
                  errors.append(VerificationError(error_type=ErrorType.ASSERTION_FAILED, message=f"Step {failed_steps[0].step_number} failed verification: {failed_steps[0].description}"))
@@ -211,16 +301,69 @@ Return raw Python only. No markdown fences. Do not change the underlying mathema
             metadata={"repaired_from_codegen_fault": repaired_from_codegen_fault}
         )
         
-    def _create_failure_result(self, reasoning, error_msg, generated_code, errors=None) -> VerificationResult:
+    def _create_failure_result(
+        self,
+        reasoning,
+        error_msg,
+        generated_code,
+        errors=None,
+        *,
+        status: VerificationStatus = VerificationStatus.FAILED_PIPELINE,
+        error_type: ErrorType = ErrorType.RUNTIME_ERROR,
+        metadata: Optional[Dict[str, Any]] = None,
+        execution_result: Optional[CodeExecutionResult] = None,
+    ) -> VerificationResult:
         """Creates a result for an unrecoverable pipeline failure."""
         return VerificationResult(
-            status="failed_pipeline",
+            status=status,
             confidence_score=0.0,
             reasoning_output=reasoning,
             generated_code=generated_code,
-            errors=errors or [VerificationError(error_type=ErrorType.RUNTIME_ERROR, message=error_msg)],
-            metadata={"pipeline_failure": True}
+            execution_result=execution_result,
+            errors=errors or [VerificationError(error_type=error_type, message=error_msg)],
+            metadata=metadata or {"pipeline_failure": True}
         )
+
+    def _execution_error_message(self, exec_result: Any) -> str:
+        if not exec_result:
+            return "Unknown execution error."
+        if getattr(exec_result, "stderr", None):
+            return exec_result.stderr
+        if getattr(exec_result, "exception_message", None):
+            return exec_result.exception_message
+        return "Unknown execution error."
+
+    def _error_type_for_execution(self, exec_result: CodeExecutionResult) -> ErrorType:
+        exception_type = (exec_result.exception_type or "").lower()
+        if "syntax" in exception_type:
+            return ErrorType.SYNTAX_ERROR
+        if "import" in exception_type:
+            return ErrorType.IMPORT_ERROR
+        if "timeout" in exception_type:
+            return ErrorType.TIMEOUT
+        return ErrorType.RUNTIME_ERROR
+
+    def _is_unsupported_error(self, error_text: str, exec_result: Optional[CodeExecutionResult] = None) -> bool:
+        text = (
+            f"{error_text or ''} "
+            f"{getattr(exec_result, 'exception_type', '') or ''} "
+            f"{getattr(exec_result, 'exception_message', '') or ''}"
+        ).lower()
+        unsupported_markers = (
+            "notimplementederror",
+            "not implemented",
+            "not supported",
+            "unsupported",
+            "sympifyerror",
+            "parseexception",
+            "could not parse",
+            "unable to parse",
+            "cannot determine truth value of relational",
+            "no algorithms are implemented",
+            "multiple generators",
+            "solveset is unable",
+        )
+        return any(marker in text for marker in unsupported_markers)
 
     def _calculate_confidence(self, exec_res, steps, final_verdict) -> float:
         """Calculates a confidence score based on the verification results."""

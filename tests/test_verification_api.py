@@ -195,6 +195,43 @@ class TestVerificationAPI:
         assert data["data"]["confidence_score"] == 0.0
         assert data["data"]["verification_passed"] is False
 
+    @patch('src.api.routers.verification.VerificationOrchestrator')
+    def test_verify_codegen_failure_is_typed_non_500_response(
+        self, mock_orchestrator_class, client, sample_verification_request
+    ):
+        """Expected verification failures should be returned as typed results."""
+        reasoning_output = ReasoningOutput(
+            original_problem=sample_verification_request["problem_statement"],
+            worked_solution=sample_verification_request["worked_solution"],
+            final_answer=sample_verification_request["final_answer"],
+            think_reasoning="",
+            processing_metadata={}
+        )
+        failed_result = VerificationResult(
+            status="failed_codegen",
+            confidence_score=0.0,
+            reasoning_output=reasoning_output,
+            generated_code="",
+            answer_match=None,
+            errors=[VerificationError(
+                error_type=ErrorType.RUNTIME_ERROR,
+                message="Initial code generation failed"
+            )],
+            metadata={"codegen_failure": True}
+        )
+        mock_orchestrator = Mock()
+        mock_orchestrator.verify_with_repair.return_value = (failed_result, [])
+        mock_orchestrator_class.return_value = mock_orchestrator
+
+        response = client.post("/api/v1/verification/verify", json=sample_verification_request)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["success"] is True
+        assert data["data"]["status"] == "failed_codegen"
+        assert data["data"]["verification_passed"] is False
+        assert data["data"]["processing_metadata"]["codegen_failure"] is True
+
     def test_verify_invalid_request(self, client):
         """Test verification with invalid request data."""
         invalid_request = {

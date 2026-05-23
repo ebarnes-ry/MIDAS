@@ -16,6 +16,18 @@ class ErrorType(Enum):
     SYMBOLIC_FAILURE = "symbolic_failure"
     CONTRACT_VIOLATION = "contract_violation"
 
+
+class VerificationStatus(str, Enum):
+    VERIFIED = "verified"
+    FAILED_REASONING = "failed_reasoning"
+    FAILED_CODEGEN = "failed_codegen"
+    FAILED_CONTRACT = "failed_contract"
+    UNSUPPORTED = "unsupported"
+    FAILED_PIPELINE = "failed_pipeline"
+
+    def __str__(self) -> str:
+        return self.value
+
 class VerificationError(BaseModel):
     error_type: ErrorType
     message: str
@@ -42,7 +54,7 @@ class CodeExecutionResult(BaseModel):
 
 class VerificationResult(BaseModel):
     """The complete, final outcome of the verification pipeline."""
-    status: str  # "verified", "failed_reasoning", "failed_codegen", "failed_contract", "failed_pipeline"
+    status: VerificationStatus
     confidence_score: float
     reasoning_output: Any  # Can hold the ReasoningOutput object
     generated_code: str
