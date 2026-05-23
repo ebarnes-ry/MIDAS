@@ -184,16 +184,155 @@ class VisionPipeline:
         )
         return problem.problem_type == "geometry" or any(marker in text for marker in visual_markers)
 
+    def _looks_like_text_or_math_fragment(self, description: str) -> bool:
+        if not description:
+            return False
+
+        text = description.lower()
+        fragment_markers = (
+            "close-up",
+            "close up",
+            "segment",
+            "part of",
+            "portion",
+            "fragment",
+            "single large",
+            "single digit",
+            "digit",
+            "letter",
+            "text",
+            "notation",
+            "expression",
+            "serif font",
+            "italicized",
+            "background",
+            "differential",
+        )
+        math_text_markers = (
+            "dx",
+            "dy",
+            "equation",
+            "integral",
+            "derivative",
+            "mathematical expression",
+        )
+        return any(marker in text for marker in fragment_markers) and any(
+            marker in text for marker in math_text_markers
+        )
+
+    def _looks_like_meaningful_visual_description(self, description: str) -> bool:
+        if not description:
+            return False
+
+        text = description.lower()
+        positive_visual_markers = (
+            "graph",
+            "plot",
+            "axis",
+            "axes",
+            "coordinate plane",
+            "table",
+            "chart",
+            "diagram",
+            "figure",
+            "triangle",
+            "circle",
+            "angle",
+            "rectangle",
+            "polygon",
+            "line segment",
+            "ray",
+            "parallel",
+            "perpendicular",
+            "curve",
+            "bar chart",
+            "histogram",
+            "scatter",
+            "number line",
+            "grid",
+            "matrix",
+        )
+        return any(marker in text for marker in positive_visual_markers)
+
+    def _description_overlaps_problem_text(self, description: str, problem: Problem, document: UIDocument) -> bool:
+        """
+        Detect descriptions that are just OCR/VLM narration of text already present
+        in the problem text or nearby math/text blocks. These should remain
+        visible as raw block metadata, but they should not become reasoning
+        visual context.
+        """
+        normalized_description = self._normalize_text(description)
+        if not normalized_description:
+            return False
+
+        candidate_texts = [problem.problem_text]
+        linked_ids = set(problem.block_ids)
+        candidate_texts.extend(
+            block.latex_content or ""
+            for block in document.blocks
+            if block.id in linked_ids and block.latex_content
+        )
+        candidate_texts.extend(
+            block.latex_content or ""
+            for block in document.blocks
+            if block.id not in linked_ids
+            and block.latex_content
+            and block.block_type.lower() in {"equation", "inlinemath"}
+        )
+
+        normalized_candidates = [
+            self._normalize_text(text)
+            for text in candidate_texts
+            if self._normalize_text(text)
+        ]
+
+        for candidate in normalized_candidates:
+            if len(candidate) >= 3 and candidate in normalized_description:
+                return True
+            if len(normalized_description) >= 3 and normalized_description in candidate:
+                return True
+            matcher = SequenceMatcher(None, normalized_description, candidate)
+            if matcher.ratio() >= 0.72:
+                return True
+
+        return False
+
+    def _is_meaningful_visual_context(self, description: str, problem: Problem, document: UIDocument) -> bool:
+        """
+        Keep only visual descriptions that carry non-textual problem information.
+        Marker often emits Picture blocks for equation fragments; attaching those
+        as visual context pollutes reasoning and makes symbolic problems appear
+        diagram-dependent.
+        """
+        if not description or not description.strip():
+            return False
+
+        if self._looks_like_text_or_math_fragment(description):
+            return False
+
+        if self._description_overlaps_problem_text(description, problem, document):
+            return False
+
+        return self._looks_like_meaningful_visual_description(description)
+
     def _associate_descriptions_to_problems(self, problems: List[Problem], document: UIDocument) -> List[Problem]:
         """
         Linus's Note: I have rewritten this function to fix the silent failure.
         The old logic was too fragile. This version uses a robust heuristic.
         """
-        figure_descriptions = [block.image_description for block in document.blocks if block.image_description]
-        if not figure_descriptions:
+        described_blocks = [block for block in document.blocks if block.image_description]
+        if not described_blocks:
             return problems # No descriptions to associate.
 
         for problem in problems:
+            meaningful_descriptions = [
+                block.image_description
+                for block in described_blocks
+                if block.image_description and self._is_meaningful_visual_context(block.image_description, problem, document)
+            ]
+            if not meaningful_descriptions:
+                continue
+
             # Prefer explicit figure references, but also attach available visual
             # descriptions when a single visual-dependent problem is present. This
             # avoids dropping diagrams that are adjacent to, but not named by, the
@@ -205,7 +344,7 @@ class VisionPipeline:
             if should_attach:
                 # For simplicity, we associate all available descriptions. A more advanced
                 # implementation could match "Figure 1" to a specific description.
-                problem.referenced_figure_descriptions = figure_descriptions
+                problem.referenced_figure_descriptions = meaningful_descriptions
                 print(f"Associated {len(problem.referenced_figure_descriptions)} descriptions with {problem.problem_id}")
         
         return problems

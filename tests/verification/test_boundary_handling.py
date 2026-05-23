@@ -7,6 +7,7 @@ from src.pipeline.reasoning.types import ReasoningOutput, ReasoningStep
 from src.pipeline.verification.verification import VerificationPipeline
 from src.pipeline.vision.types import Problem, ProblemType, UIDocument, UIBlock, UserSelection
 from src.pipeline.vision.vision import VisionPipeline
+from src.api.routers.vision import convert_ui_document_to_api_document
 
 
 def _manager():
@@ -162,6 +163,160 @@ def test_visual_selection_metadata_records_attached_description_without_explicit
     assert output.source_metadata["visual_context_required"] is True
     assert output.source_metadata["visual_context_attached"] is True
     assert output.source_metadata["visual_context_description_count"] == 1
+
+
+def test_equation_fragment_descriptions_are_not_attached_as_visual_context():
+    pipeline = VisionPipeline.__new__(VisionPipeline)
+    problem = Problem(
+        problem_id="problem_1",
+        problem_text=r"$\int_0^2 (3x^2 - 2x + 1) \, dx$",
+        block_ids=["eq_1"],
+        problem_type=ProblemType.CALCULUS,
+    )
+    document = UIDocument(
+        blocks=[
+            UIBlock(
+                id="eq_1",
+                block_type="Equation",
+                html="",
+                polygon=[0, 0, 10, 0, 10, 10, 0, 10],
+                bbox=[0, 0, 10, 10],
+                children=[],
+                section_hierarchy={},
+                latex_content=r"\int_0^2 (3x^2 - 2x + 1) \, dx",
+                is_editable=True,
+            ),
+            UIBlock(
+                id="picture_1",
+                block_type="Picture",
+                html="",
+                polygon=[0, 0, 10, 0, 10, 10, 0, 10],
+                bbox=[0, 0, 10, 10],
+                children=[],
+                section_hierarchy={},
+                image_description=(
+                    'The image shows bold black text "1) dx" on a light yellow background. '
+                    'The text appears to be part of an equation notation with the differential dx.'
+                ),
+            ),
+        ],
+        full_page_text=problem.problem_text,
+        images={},
+        metadata={},
+        dimensions=(10, 10),
+        problems=[problem],
+    )
+
+    document.problems = pipeline._associate_descriptions_to_problems(document.problems, document)
+    output = pipeline.process_selection(
+        UserSelection(
+            problem_id="problem_1",
+            edited_latex=problem.problem_text,
+            original_image_path="",
+        ),
+        document,
+        Image.new("RGB", (10, 10), "white"),
+    )
+
+    assert document.problems[0].referenced_figure_descriptions == []
+    assert output.visual_context is None
+    assert output.source_metadata["visual_context_required"] is False
+    assert output.source_metadata["visual_context_attached"] is False
+
+
+def test_referenced_graph_description_is_still_attached_as_visual_context():
+    pipeline = VisionPipeline.__new__(VisionPipeline)
+    problem = Problem(
+        problem_id="problem_1",
+        problem_text="Use Figure 1 to find the x-intercept of the graph.",
+        figure_references=["Figure 1"],
+        block_ids=["text_1"],
+        problem_type=ProblemType.ALGEBRA,
+    )
+    document = UIDocument(
+        blocks=[
+            UIBlock(
+                id="text_1",
+                block_type="Text",
+                html="",
+                polygon=[0, 0, 10, 0, 10, 10, 0, 10],
+                bbox=[0, 0, 10, 10],
+                children=[],
+                section_hierarchy={},
+                latex_content="Use Figure 1 to find the x-intercept of the graph.",
+                is_editable=True,
+            ),
+            UIBlock(
+                id="figure_1",
+                block_type="Figure",
+                html="",
+                polygon=[0, 0, 10, 0, 10, 10, 0, 10],
+                bbox=[0, 0, 10, 10],
+                children=[],
+                section_hierarchy={},
+                image_description="A coordinate plane graph with a line crossing the x-axis at x = 3.",
+            ),
+        ],
+        full_page_text=problem.problem_text,
+        images={},
+        metadata={},
+        dimensions=(10, 10),
+        problems=[problem],
+    )
+
+    document.problems = pipeline._associate_descriptions_to_problems(document.problems, document)
+
+    assert document.problems[0].referenced_figure_descriptions == [
+        "A coordinate plane graph with a line crossing the x-axis at x = 3."
+    ]
+
+
+def test_api_problem_metadata_uses_filtered_visual_context_not_raw_marker_noise():
+    pipeline = VisionPipeline.__new__(VisionPipeline)
+    problem = Problem(
+        problem_id="problem_1",
+        problem_text=r"$\int_0^2 x^2 e^x \, dx$",
+        block_ids=[],
+        problem_type=ProblemType.CALCULUS,
+    )
+    document = UIDocument(
+        blocks=[
+            UIBlock(
+                id="eq_1",
+                block_type="Equation",
+                html="",
+                polygon=[0, 0, 10, 0, 10, 10, 0, 10],
+                bbox=[0, 0, 10, 10],
+                children=[],
+                section_hierarchy={},
+                latex_content=r"x^2 e^x",
+                is_editable=True,
+            ),
+            UIBlock(
+                id="picture_1",
+                block_type="Picture",
+                html="",
+                polygon=[0, 0, 10, 0, 10, 10, 0, 10],
+                bbox=[0, 0, 10, 10],
+                children=[],
+                section_hierarchy={},
+                image_description="The image shows duplicated mathematical expression x^2 e^x.",
+            ),
+        ],
+        full_page_text=problem.problem_text,
+        images={},
+        metadata={},
+        dimensions=(10, 10),
+        problems=[problem],
+    )
+
+    document.problems = pipeline._associate_descriptions_to_problems(document.problems, document)
+    api_document = convert_ui_document_to_api_document(document, Image.new("RGB", (10, 10), "white"))
+
+    assert api_document.blocks[1].image_description == "The image shows duplicated mathematical expression x^2 e^x."
+    assert api_document.problems[0].visual_context_attached is False
+    assert api_document.problems[0].visual_context_summary is None
+    assert api_document.problems[0].visual_context_description_count == 0
 
 
 def test_visual_selection_accepts_user_override_and_removal():
