@@ -43,6 +43,7 @@ class VisionPipeline:
         #ui_document.problems = self._link_problems_to_blocks(problems, ui_document)
         problems_with_blocks = self._link_problems_to_blocks(problems, ui_document)
         problems_with_blocks = self._repair_problem_assembly(problems_with_blocks, ui_document)
+        problems_with_blocks = self._reclassify_problem_types(problems_with_blocks, ui_document)
 
         # Step 5: Explicitly associate figure descriptions with the problems.
         ui_document.problems = self._associate_descriptions_to_problems(problems_with_blocks, ui_document)
@@ -181,6 +182,26 @@ class VisionPipeline:
     def _block_text(self, block) -> str:
         return (block.latex_content or "").strip()
 
+    def _linked_block_latex(self, problem: Problem, document: UIDocument) -> List[str]:
+        linked_ids = set(problem.block_ids)
+        return [
+            block.latex_content
+            for block in document.blocks
+            if block.id in linked_ids and block.latex_content
+        ]
+
+    def _reclassify_problem_types(self, problems: List[Problem], document: UIDocument) -> List[Problem]:
+        """
+        Re-run problem type classification after block linking/repair so raw
+        LaTeX that was not present in the grouped text can influence metadata.
+        """
+        for problem in problems:
+            problem.problem_type = self.grouper._classify_problem_type(
+                problem.problem_text,
+                self._linked_block_latex(problem, document),
+            )
+        return problems
+
     def _is_math_like_block(self, block) -> bool:
         block_type = block.block_type.lower()
         text = self._block_text(block)
@@ -250,7 +271,6 @@ class VisionPipeline:
             suffix = "\n".join(text for text in added_texts if text)
             if suffix and suffix not in problem.problem_text:
                 problem.problem_text = f"{problem.problem_text.rstrip()}\n{suffix}"
-                problem.problem_type = self.grouper._classify_problem_type(problem.problem_text)
 
         return problems
 

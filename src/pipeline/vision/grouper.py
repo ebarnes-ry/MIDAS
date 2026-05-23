@@ -73,6 +73,7 @@
 #             return []
 
 import json
+import re
 from typing import List, Dict, Tuple, Optional, Any
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 from dataclasses import dataclass
@@ -129,22 +130,90 @@ class SemanticGrouper:
             or default
         )
 
-    def _classify_problem_type(self, problem_text: str) -> ProblemType:
-        """Heuristic keyword-based classification of a math problem."""
-        text = problem_text.lower()
+    def _classify_problem_type(
+        self,
+        problem_text: str,
+        context_texts: Optional[List[str]] = None,
+    ) -> ProblemType:
+        """Heuristic keyword and LaTeX-aware classification of a math problem."""
+        pieces = [problem_text or ""]
+        if context_texts:
+            pieces.extend(text for text in context_texts if text)
+        text = "\n".join(pieces).lower()
+
         if any(k in text for k in ["prove", "proof", "show that", "demonstrate", "if and only if", "∀", "∃"]):
             return ProblemType.PROOF
-        if any(k in text for k in ["∫", "integral", "derivative", "differentiate", "lim", "limit", "∂", "series", "converge"]):
+        calculus_markers = [
+            "∫",
+            "\\int",
+            "integral",
+            "derivative",
+            "differentiate",
+            "differentiation",
+            "\\lim",
+            " lim_",
+            "limit",
+            "∂",
+            "\\partial",
+            "series",
+            "converge",
+            "\\frac{d}{dx}",
+            "\\frac{dy}{dx}",
+            "\\frac{d}{d",
+        ]
+        if any(k in text for k in calculus_markers) or re.search(r"\b[a-z]\s*'\s*(?:\(|=|\+|-|$)", text):
             return ProblemType.CALCULUS
-        if any(k in text for k in ["matrix", "vector", "eigenvalue", "determinant", "span", "basis"]):
+        linear_algebra_markers = [
+            "matrix",
+            "matrices",
+            "vector",
+            "eigenvalue",
+            "eigenvalues",
+            "eigenvector",
+            "determinant",
+            "\\det",
+            "span",
+            "basis",
+            "\\begin{matrix}",
+            "\\begin{bmatrix}",
+            "\\begin{pmatrix}",
+            "\\begin{vmatrix}",
+            "\\begin{array}",
+        ]
+        if any(k in text for k in linear_algebra_markers):
             return ProblemType.LINEAR_ALGEBRA
         if any(k in text for k in ["probability", "expected value", "variance", "distribution", "p(x"]):
             return ProblemType.STATISTICS
-        if any(k in text for k in ["prime", "divisible", "modulo", "congruent", "integer"]):
+        number_theory_markers = [
+            "prime",
+            "divisible",
+            "divides",
+            "modulo",
+            "\\mod",
+            "\\pmod",
+            "congruent",
+            "\\equiv",
+            "integer",
+        ]
+        if any(k in text for k in number_theory_markers) or re.search(r"\b[a-z0-9]+\s*\\mid\s*[a-z0-9]+", text):
             return ProblemType.NUMBER_THEORY
         if any(k in text for k in ["triangle", "angle", "circle", "area", "perimeter", "geometric"]):
             return ProblemType.GEOMETRY
-        if any(k in text for k in ["solve", "equation", "simplify", "factor", "expand", "polynomial"]):
+        algebra_markers = [
+            "solve",
+            "equation",
+            "system",
+            "simplify",
+            "factor",
+            "expand",
+            "polynomial",
+            "\\begin{cases}",
+            "\\begin{aligned}",
+            "\\begin{align}",
+            "\\begin{gathered}",
+            "\\begin{split}",
+        ]
+        if any(k in text for k in algebra_markers) or text.count("=") >= 2:
             return ProblemType.ALGEBRA
         return ProblemType.OTHER
 

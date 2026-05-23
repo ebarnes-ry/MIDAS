@@ -224,6 +224,62 @@ def test_instruction_stem_is_merged_with_immediately_following_equations():
     assert repaired[0].problem_text == "Solve the system:\nx + y = 3\nx - y = 1"
 
 
+def test_problem_type_classifier_detects_latex_math_domains():
+    grouper = SemanticGrouper.__new__(SemanticGrouper)
+
+    assert grouper._classify_problem_type(r"\int_0^1 x^2\,dx") == ProblemType.CALCULUS
+    assert grouper._classify_problem_type(r"f'(x)=3x^2") == ProblemType.CALCULUS
+    assert grouper._classify_problem_type(r"\begin{bmatrix}1&2\\3&4\end{bmatrix}") == ProblemType.LINEAR_ALGEBRA
+    assert grouper._classify_problem_type(r"\begin{cases}x+y=3\\x-y=1\end{cases}") == ProblemType.ALGEBRA
+    assert grouper._classify_problem_type(r"a \equiv b \pmod n") == ProblemType.NUMBER_THEORY
+
+
+def test_problem_type_is_reclassified_using_linked_block_latex():
+    pipeline = VisionPipeline.__new__(VisionPipeline)
+    pipeline.grouper = SemanticGrouper.__new__(SemanticGrouper)
+    problem = Problem(
+        problem_id="problem_1",
+        problem_text="Evaluate",
+        block_ids=["stem", "eq_1"],
+        problem_type=ProblemType.OTHER,
+    )
+    document = UIDocument(
+        blocks=[
+            UIBlock(
+                id="stem",
+                block_type="Text",
+                html="",
+                polygon=[],
+                bbox=[0, 0, 10, 10],
+                children=[],
+                section_hierarchy={},
+                latex_content="Evaluate",
+                is_editable=True,
+            ),
+            UIBlock(
+                id="eq_1",
+                block_type="Equation",
+                html="",
+                polygon=[],
+                bbox=[0, 11, 10, 20],
+                children=[],
+                section_hierarchy={},
+                latex_content=r"\int_0^1 x^2\,dx",
+                is_editable=True,
+            ),
+        ],
+        full_page_text=r"Evaluate \int_0^1 x^2\,dx",
+        images={},
+        metadata={},
+        dimensions=(10, 20),
+        problems=[problem],
+    )
+
+    reclassified = pipeline._reclassify_problem_types([problem], document)
+
+    assert reclassified[0].problem_type == ProblemType.CALCULUS
+
+
 def test_instruction_stem_merge_stops_before_non_math_block():
     pipeline = VisionPipeline.__new__(VisionPipeline)
     pipeline.grouper = SemanticGrouper.__new__(SemanticGrouper)
