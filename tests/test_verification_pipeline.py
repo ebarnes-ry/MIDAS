@@ -685,6 +685,32 @@ class TestVerificationPipeline:
         assert result.metadata["unsupported"] is True
         pipeline._get_repaired_code.assert_not_called()
 
+    def test_v7_final_verdict_fields_drive_answer_mismatch_feedback(
+        self, mock_model_manager, sample_reasoning
+    ):
+        pipeline = VerificationPipeline(mock_model_manager)
+        pipeline.code_generator.generate = Mock(return_value=("test_code", {}))
+        pipeline.executor.execute = Mock(
+            return_value=CodeExecutionResult(
+                success=True,
+                stdout=(
+                    '{"step": 1, "description": "Differentiate", "verified": true, "note": "confirmed"}\n'
+                    '{"final_answer_verified": false, "answer": "6*x + 2", '
+                    '"note": "computed=6*x + 3; claimed=6*x + 2"}\n'
+                ),
+                stderr="",
+                execution_time=0.01,
+            )
+        )
+
+        result = pipeline.verify(sample_reasoning)
+
+        assert result.status == "failed_reasoning"
+        assert result.errors[0].error_type == ErrorType.ANSWER_MISMATCH
+        assert "Answer: 6*x + 2" in result.errors[0].message
+        assert "computed=6*x + 3" in result.errors[0].message
+        assert result.metadata["final_verdict"]["note"] == "computed=6*x + 3; claimed=6*x + 2"
+
     def test_linear_equation_codegen_contract_fault_is_repaired(
         self, mock_model_manager, linear_equation_reasoning
     ):

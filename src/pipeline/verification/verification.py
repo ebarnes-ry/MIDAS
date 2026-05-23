@@ -104,7 +104,11 @@ class VerificationPipeline:
             )
 
         # --- 4. PARSE THE OUTPUT (CONTRACT ADHERENCE) ---
-        steps, final_verdict, parsing_error = self.output_parser.parse(execution_result)
+        expected_step_numbers = self._expected_step_numbers(reasoning)
+        steps, final_verdict, parsing_error = self.output_parser.parse(
+            execution_result,
+            expected_step_numbers=expected_step_numbers,
+        )
         
         if parsing_error:
             # Output did not adhere to the JSON contract. This is a CODEGEN FAULT.
@@ -173,7 +177,10 @@ class VerificationPipeline:
                 raise RuntimeError("Repaired code also failed to execute.")
             
             # Analyze the output of the *repaired* code
-            steps, final_verdict, parsing_error = self.output_parser.parse(new_exec_result)
+            steps, final_verdict, parsing_error = self.output_parser.parse(
+                new_exec_result,
+                expected_step_numbers=self._expected_step_numbers(reasoning),
+            )
 
             if parsing_error or not final_verdict:
                  raise RuntimeError("Repaired code still violates the verification contract.")
@@ -273,6 +280,27 @@ Return raw Python only. No markdown fences. Do not change the underlying mathema
                 step.verification_status = result.verified
                 step.verification_note = result.note if not result.verified else None
 
+    def _expected_step_numbers(self, reasoning: ReasoningOutput) -> List[int]:
+        return [int(step.step_number) for step in reasoning.steps]
+
+    def _final_answer_mismatch_message(self, final_verdict: Dict[str, Any]) -> str:
+        answer = final_verdict.get("answer")
+        note = final_verdict.get("note")
+        computed = final_verdict.get("computed")
+        claimed = final_verdict.get("claimed")
+
+        if computed is not None or claimed is not None:
+            return f"Final answer mismatch. Computed: {computed}, Claimed: {claimed}"
+
+        parts = []
+        if answer not in (None, ""):
+            parts.append(f"Answer: {answer}")
+        if note not in (None, ""):
+            parts.append(f"Verifier note: {note}")
+        if parts:
+            return "Final answer mismatch. " + "; ".join(parts)
+        return "Final answer mismatch."
+
     def _create_final_result(self, reasoning, code, exec_result, steps, final_verdict, status, repaired_from_codegen_fault=False) -> VerificationResult:
         """Helper to construct the final VerificationResult object."""
         self._annotate_reasoning_steps(reasoning, steps)
@@ -287,7 +315,7 @@ Return raw Python only. No markdown fences. Do not change the underlying mathema
             if failed_steps:
                  errors.append(VerificationError(error_type=ErrorType.ASSERTION_FAILED, message=f"Step {failed_steps[0].step_number} failed verification: {failed_steps[0].description}"))
             if not final_verdict.get("final_answer_verified"):
-                errors.append(VerificationError(error_type=ErrorType.ANSWER_MISMATCH, message=f"Final answer mismatch. Computed: {final_verdict.get('computed')}, Claimed: {final_verdict.get('claimed')}"))
+                errors.append(VerificationError(error_type=ErrorType.ANSWER_MISMATCH, message=self._final_answer_mismatch_message(final_verdict)))
 
         return VerificationResult(
             status=status,
@@ -298,7 +326,10 @@ Return raw Python only. No markdown fences. Do not change the underlying mathema
             step_verifications=steps,
             answer_match=final_verdict.get("final_answer_verified"),
             errors=errors,
-            metadata={"repaired_from_codegen_fault": repaired_from_codegen_fault}
+            metadata={
+                "repaired_from_codegen_fault": repaired_from_codegen_fault,
+                "final_verdict": final_verdict,
+            }
         )
         
     def _create_failure_result(

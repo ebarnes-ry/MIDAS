@@ -182,10 +182,32 @@ class VerificationOrchestrator:
     def _create_reasoning_repair_context(self, verification_result: VerificationResult) -> str:
         context_parts = [f"- {error.message}" for error in verification_result.errors]
         failed_steps = [s for s in verification_result.step_verifications if not s.verified]
+        result_reasoning = getattr(verification_result, "reasoning_output", None)
+        raw_reasoning_steps = getattr(result_reasoning, "steps", [])
+        if not isinstance(raw_reasoning_steps, list):
+            raw_reasoning_steps = []
+        reasoning_steps = {step.step_number: step for step in raw_reasoning_steps}
         if failed_steps:
             context_parts.append("\nThe following steps were proven incorrect:")
             for step in failed_steps:
-                context_parts.append(f"  - Step {step.step_number}: {step.description}")
+                reasoning_step = reasoning_steps.get(step.step_number)
+                claim = getattr(reasoning_step, "claim", None) or step.description
+                context_parts.append(f"  - Step {step.step_number}: {claim}")
+                if step.note:
+                    context_parts.append(f"    Verifier note: {step.note}")
+
+        metadata = getattr(verification_result, "metadata", {}) or {}
+        final_verdict = metadata.get("final_verdict", {})
+        if final_verdict and final_verdict.get("final_answer_verified") is False:
+            context_parts.append("\nThe final answer was proven incorrect:")
+            if final_verdict.get("answer"):
+                context_parts.append(f"  - Claimed answer: {final_verdict['answer']}")
+            if final_verdict.get("note"):
+                context_parts.append(f"  - Verifier note: {final_verdict['note']}")
+            elif final_verdict.get("computed") is not None or final_verdict.get("claimed") is not None:
+                context_parts.append(f"  - Computed: {final_verdict.get('computed')}")
+                context_parts.append(f"  - Claimed: {final_verdict.get('claimed')}")
+
         return "\n".join(context_parts)
 
     def _create_contract_failure_result(

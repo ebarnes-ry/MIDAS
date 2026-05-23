@@ -89,18 +89,27 @@ def create_app() -> FastAPI:
     app.include_router(verification.router, prefix="/api/v1/verification", tags=["verification"])
     app.include_router(trajectories.router, prefix="/api/v1/trajectories", tags=["trajectories"])
 
+    @app.get("/")
+    async def root():
+        return {
+            "name": "MIDAS API",
+            "version": "2.1.0",
+            "status": "operational",
+            "endpoints": {
+                "health": "/health",
+                "vision": "/api/v1/vision",
+                "reasoning": "/api/v1/reasoning",
+                "codegen": "/api/v1/codegen",
+                "verification": "/api/v1/verification",
+                "trajectories": "/api/v1/trajectories",
+            },
+        }
+
+    @app.get("/health")
+    async def health_probe():
+        return {"status": "ok", "version": "2.1.0"}
+
     return app
 
 
 app = create_app()
-
-
-@app.get("/")
-async def root():
-    return {"name": "MIDAS API", "version": "2.1.0", "status": "operational"}
-
-
-# Railway / container health probe (no auth, no dependencies)
-@app.get("/health")
-async def health_probe():
-    return {"status": "ok", "version": "2.1.0"}

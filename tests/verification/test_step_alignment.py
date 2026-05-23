@@ -149,3 +149,28 @@ class TestVerificationOutputParser:
         steps, _, _ = parser.parse(self._exec_result(stdout))
 
         assert [s.step_number for s in steps] == [1, 2, 3]
+
+    def test_validates_against_expected_step_numbers(self):
+        stdout = (
+            '{"step": 1, "description": "a", "verified": true, "note": ""}\n'
+            '{"step": 3, "description": "c", "verified": true, "note": ""}\n'
+            '{"final_answer_verified": true, "answer": "x", "note": ""}\n'
+        )
+        parser = VerificationOutputParser()
+        _, _, err = parser.parse(self._exec_result(stdout), expected_step_numbers=[1, 2])
+
+        assert err is not None
+        assert "missing step output(s): 2" in err
+        assert "unexpected step output(s): 3" in err
+
+    def test_rejects_duplicate_expected_step_output(self):
+        stdout = (
+            '{"step": 1, "description": "a", "verified": true, "note": ""}\n'
+            '{"step": 1, "description": "duplicate", "verified": true, "note": ""}\n'
+            '{"final_answer_verified": true, "answer": "x", "note": ""}\n'
+        )
+        parser = VerificationOutputParser()
+        _, _, err = parser.parse(self._exec_result(stdout), expected_step_numbers=[1])
+
+        assert err is not None
+        assert "duplicate step output(s): 1" in err
