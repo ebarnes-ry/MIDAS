@@ -1,12 +1,15 @@
 from __future__ import annotations
 from typing import Dict, Any, Optional, List
+import ssl
 import time
 from os import getenv
 from pydantic import ValidationError
 
+import httpx
 from openai import OpenAI
 from openai import APIError, APITimeoutError, APIConnectionError, RateLimitError
 from tenacity import retry, stop_after_attempt, wait_exponential_jitter, retry_if_exception
+import truststore
 
 from .base import ModelProvider, ChatRequest, ModelResponse, ModelError, ModelRetryable, ModelTimeout
 from ...utils.image_converter import to_base64
@@ -25,11 +28,20 @@ def _is_retryable(exc: BaseException) -> bool:
 
 class OpenAIProvider(ModelProvider):
     def __init__(self, base_url: Optional[str] = None, api_key: Optional[str] = None, default_headers: Optional[Dict[str, str]] = None, timeout: float = 60.0, **kwargs):
+        http_client = kwargs.pop("http_client", None)
+        if http_client is None:
+            # Use the operating system trust store rather than certifi. This keeps
+            # TLS verification enabled while supporting networks that install a
+            # trusted local root certificate for HTTPS inspection.
+            ssl_context = truststore.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+            http_client = httpx.Client(verify=ssl_context, timeout=timeout)
+
         self.client = OpenAI(
             base_url=base_url,
             api_key=api_key or getenv("OPENAI_API_KEY"),
             default_headers=default_headers or {},
             timeout=timeout,
+            http_client=http_client,
             **kwargs
         )
         self.base_url = base_url

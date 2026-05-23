@@ -102,7 +102,7 @@ Your goal is to ensure mathematical content is correctly identified and properly
         # Set LLM service class
         service_classes = {
             "gemini": "marker.services.gemini.GoogleGeminiService",
-            "openai": "marker.services.openai.OpenAIService",
+            "openai": "src.models.services.marker_openai.TruststoreOpenAIService",
         }
 
         if llm_service not in service_classes:

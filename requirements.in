@@ -11,6 +11,7 @@ sympy
 openai
 ollama
 httpx
+truststore
 
 # RETRY/ERROR HANDLING
 tenacity

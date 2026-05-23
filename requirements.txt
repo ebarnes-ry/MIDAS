@@ -267,6 +267,8 @@ transformers==4.56.1
     # via
     #   marker-pdf
     #   surya-ocr
+truststore==0.10.4
+    # via -r requirements.in
 typing-extensions==4.15.0
     # via
     #   anthropic

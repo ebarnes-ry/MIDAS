@@ -319,7 +319,7 @@ def test_marker_uses_openai_service_when_configured(monkeypatch):
     config = service._build_cli_config()
 
     assert config["use_llm"] is True
-    assert config["llm_service"] == "marker.services.openai.OpenAIService"
+    assert config["llm_service"] == "src.models.services.marker_openai.TruststoreOpenAIService"
     assert config["openai_api_key"] == "openai-key"
     assert config["openai_model"] == "gpt-4.1-mini"
     assert config["openai_base_url"] == "https://api.openai.com/v1"

@@ -130,7 +130,7 @@ class TestMarkerService:
         service = MarkerService(**settings)
         
         cli_config = service._build_cli_config()
-        assert cli_config["llm_service"] == "marker.services.openai.OpenAIService"
+        assert cli_config["llm_service"] == "src.models.services.marker_openai.TruststoreOpenAIService"
         assert cli_config["openai_base_url"] == "https://api.openai.com/v1"
         assert cli_config["openai_model"] == "gpt-4o-mini"
         assert cli_config["openai_api_key"] == "test-openai-key"
@@ -292,7 +292,7 @@ class TestMarkerService:
         service_openai = MarkerService(**settings_openai)
         config_openai = service_openai._build_cli_config()
         
-        assert config_openai["llm_service"] == "marker.services.openai.OpenAIService"
+        assert config_openai["llm_service"] == "src.models.services.marker_openai.TruststoreOpenAIService"
         assert config_openai["openai_base_url"] == "https://custom.openai.com/v1"
         assert config_openai["openai_model"] == "gpt-4"
         assert config_openai["openai_api_key"] == "openai-key"
