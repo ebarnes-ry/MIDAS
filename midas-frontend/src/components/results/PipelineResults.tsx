@@ -13,6 +13,12 @@ const ERR_META: Record<string, { label: string; description: string }> = {
   TIMEOUT:            { label: 'Timeout',               description: 'Verification exceeded the time limit.' },
   SYMBOLIC_FAILURE:   { label: 'Symbolic Limitation',   description: 'SymPy could not verify this symbolically.' },
   CONTRACT_VIOLATION: { label: 'Contract Violation',    description: 'Verifier did not produce expected output format.' },
+  answer_mismatch:    { label: 'Reasoning Fault',      description: 'The mathematical argument contains an error.' },
+  assertion_failed:   { label: 'Step Failed',           description: 'SymPy disproved a step in the solution.' },
+  syntax_error:       { label: 'Code Generation Fault', description: 'The verifier code had a syntax error — not a math error.' },
+  timeout:            { label: 'Timeout',               description: 'Verification exceeded the time limit.' },
+  symbolic_failure:   { label: 'Symbolic Limitation',   description: 'SymPy could not verify this symbolically.' },
+  contract_violation: { label: 'Contract Violation',    description: 'Verifier did not produce expected output format.' },
 };
 
 // ── Shared style tokens ───────────────────────────────────────────────────────
@@ -29,6 +35,8 @@ const Sidebar: React.FC<{
   onStartOver: () => void;
 }> = ({ problemStatement, steps, repairAttempts, status, confidence, onStartOver }) => {
   const statusOk = status === 'verified';
+  const statusLimited = status === 'unsupported' || status === 'needs_visual_context';
+  const statusText = statusOk ? '✓ verified' : statusLimited ? status.replace('_', ' ') : '✗ ' + status.replace('_', ' ');
   return (
     <div style={{ width: 220, flexShrink: 0, background: 'var(--parchment)', borderRight: '1px solid var(--rule)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
       {/* Brand */}
@@ -73,8 +81,8 @@ const Sidebar: React.FC<{
         <div>attempts &nbsp;<span style={{ color: 'var(--ink-2)' }}>{repairAttempts + 1}</span></div>
         <div>confidence &nbsp;<span style={{ color: 'var(--ink-2)' }}>{(confidence * 100).toFixed(0)}%</span></div>
         <div style={{ marginTop: 8 }}>
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 8px', borderRadius: 3, fontSize: 10.5, border: '1px solid', background: statusOk ? 'var(--verified-bg)' : 'var(--failed-bg)', borderColor: statusOk ? 'var(--verified-bd)' : 'var(--failed-bd)', color: statusOk ? 'var(--verified)' : 'var(--failed)' }}>
-            {statusOk ? '✓ verified' : '✗ ' + status.replace('_', ' ')}
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 8px', borderRadius: 3, fontSize: 10.5, border: '1px solid', background: statusOk ? 'var(--verified-bg)' : statusLimited ? 'var(--amber-bg)' : 'var(--failed-bg)', borderColor: statusOk ? 'var(--verified-bd)' : statusLimited ? 'var(--amber-bd)' : 'var(--failed-bd)', color: statusOk ? 'var(--verified)' : statusLimited ? 'var(--amber)' : 'var(--failed)' }}>
+            {statusText}
           </span>
         </div>
       </div>
@@ -113,6 +121,7 @@ export const PipelineResults: React.FC<{ result: CompletePipelineResponse; onSta
   const steps = reasoning.steps ?? [];
   const repairHistory = verification?.repair_history ?? [];
   const errors = verification?.errors ?? [];
+  const verificationMetadata = verification?.metadata ?? {};
   const repairAttempts = Math.max(0, repairHistory.length - 1);
 
   return (
@@ -255,13 +264,25 @@ export const PipelineResults: React.FC<{ result: CompletePipelineResponse; onSta
               <div className="midas-widget">
                 <div className="midas-widget-hd">
                   result
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 8px', borderRadius: 3, fontSize: 10.5, border: '1px solid', ...mono, background: verification.status === 'verified' ? 'var(--verified-bg)' : 'var(--failed-bg)', borderColor: verification.status === 'verified' ? 'var(--verified-bd)' : 'var(--failed-bd)', color: verification.status === 'verified' ? 'var(--verified)' : 'var(--failed)' }}>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 8px', borderRadius: 3, fontSize: 10.5, border: '1px solid', ...mono, background: verification.status === 'verified' ? 'var(--verified-bg)' : verification.status === 'unsupported' || verification.status === 'needs_visual_context' ? 'var(--amber-bg)' : 'var(--failed-bg)', borderColor: verification.status === 'verified' ? 'var(--verified-bd)' : verification.status === 'unsupported' || verification.status === 'needs_visual_context' ? 'var(--amber-bd)' : 'var(--failed-bd)', color: verification.status === 'verified' ? 'var(--verified)' : verification.status === 'unsupported' || verification.status === 'needs_visual_context' ? 'var(--amber)' : 'var(--failed)' }}>
                     {verification.status}
                   </span>
                 </div>
                 <div className="midas-widget-bd">
+                  {verification.status === 'unsupported' && (
+                    <div style={{ ...serif2, color: 'var(--ink-2)', fontStyle: 'italic', fontSize: 13, lineHeight: 1.5, marginBottom: 10 }}>
+                      Solved, but symbolic verification is not available for this problem type.
+                    </div>
+                  )}
+                  {verification.status === 'needs_visual_context' && (
+                    <div style={{ ...serif2, color: 'var(--ink-2)', fontStyle: 'italic', fontSize: 13, lineHeight: 1.5, marginBottom: 10 }}>
+                      This problem appears to depend on a diagram, graph, or table that was not available to the reasoning model.
+                    </div>
+                  )}
                   <div className="midas-w-row"><span style={{ ...serif2, color: 'var(--ink-3)' }}>Steps verified</span><span style={{ ...mono, fontSize: 11.5, color: steps.filter(s => s.verification_status === true).length === steps.length ? 'var(--verified)' : 'var(--ink)' }}>{steps.filter(s => s.verification_status === true).length} / {steps.length}</span></div>
                   <div className="midas-w-row"><span style={{ ...serif2, color: 'var(--ink-3)' }}>Steps failed</span><span style={{ ...mono, fontSize: 11.5, color: steps.filter(s => s.verification_status === false).length > 0 ? 'var(--failed)' : 'var(--ink)' }}>{steps.filter(s => s.verification_status === false).length}</span></div>
+                  {verificationMetadata.unsupported_reason && <div className="midas-w-row"><span style={{ ...serif2, color: 'var(--ink-3)' }}>Boundary</span><span style={{ ...mono, fontSize: 11.5 }}>{String(verificationMetadata.unsupported_reason).replaceAll('_', ' ')}</span></div>}
+                  {verificationMetadata.visual_context_required !== undefined && <div className="midas-w-row"><span style={{ ...serif2, color: 'var(--ink-3)' }}>Visual context</span><span style={{ ...mono, fontSize: 11.5 }}>{verificationMetadata.visual_context_attached ? 'attached' : verificationMetadata.visual_context_required ? 'needed' : 'not needed'}</span></div>}
                   <div className="midas-w-row"><span style={{ ...serif2, color: 'var(--ink-3)' }}>Repair attempts</span><span style={{ ...mono, fontSize: 11.5 }}>{repairAttempts}</span></div>
                   <div className="midas-w-row"><span style={{ ...serif2, color: 'var(--ink-3)' }}>Confidence</span><span style={{ ...mono, fontSize: 11.5 }}>{(verification.confidence_score * 100).toFixed(1)}%</span></div>
                   {/* Step dots */}

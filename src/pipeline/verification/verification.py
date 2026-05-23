@@ -1,5 +1,6 @@
 from typing import Dict, Any, List, Optional
 import json
+import re
 
 from .verification_types import (
     CodeExecutionResult,
@@ -36,6 +37,10 @@ class VerificationPipeline:
         """
         Main verification logic. Follows a Generate -> Execute -> Analyze flow.
         """
+        boundary_result = self._classify_verification_boundary(reasoning)
+        if boundary_result is not None:
+            return boundary_result
+
         # --- 1. GENERATE INITIAL CODE ---
         try:
             code, metadata = self.code_generator.generate(reasoning)
@@ -354,6 +359,141 @@ Return raw Python only. No markdown fences. Do not change the underlying mathema
             errors=errors or [VerificationError(error_type=error_type, message=error_msg)],
             metadata=metadata or {"pipeline_failure": True}
         )
+
+    def _classify_verification_boundary(
+        self,
+        reasoning: ReasoningOutput,
+    ) -> Optional[VerificationResult]:
+        metadata = getattr(reasoning, "processing_metadata", {}) or {}
+        problem_type = str(metadata.get("problem_type") or "unknown").lower()
+        problem_text = f"{reasoning.original_problem}\n{reasoning.worked_solution}".lower()
+
+        visual_required = bool(metadata.get("visual_context_required"))
+        visual_attached = bool(metadata.get("visual_context_attached"))
+        if visual_required and not visual_attached:
+            return self._create_failure_result(
+                reasoning,
+                "This problem appears to require a diagram, graph, table, or figure, but no usable visual context was attached.",
+                generated_code="",
+                status=VerificationStatus.NEEDS_VISUAL_CONTEXT,
+                error_type=ErrorType.SYMBOLIC_FAILURE,
+                metadata={
+                    "needs_visual_context": True,
+                    "visual_context_required": True,
+                    "visual_context_attached": False,
+                    "unsupported_reason": "missing_visual_context",
+                    "problem_type": problem_type,
+                    "verification_boundary": "missing_visual_context",
+                },
+            )
+
+        if self._is_abstract_proof_boundary(problem_type, problem_text):
+            return self._create_unsupported_boundary_result(
+                reasoning,
+                problem_type,
+                "abstract_proof_verification_boundary",
+                "This solution is proof-oriented, and the current SymPy verifier cannot reliably check abstract proof obligations.",
+            )
+
+        if self._is_geometry_boundary(problem_type, problem_text):
+            return self._create_unsupported_boundary_result(
+                reasoning,
+                problem_type,
+                "geometry_symbolic_verification_boundary",
+                "This problem is geometry-oriented; the current SymPy verifier cannot reliably validate diagram/theorem-based geometry reasoning.",
+            )
+
+        if self._is_advanced_analysis_boundary(problem_type, problem_text):
+            return self._create_unsupported_boundary_result(
+                reasoning,
+                problem_type,
+                "advanced_analysis_verification_boundary",
+                "This problem appears to require advanced analysis reasoning beyond the current symbolic verifier boundary.",
+            )
+
+        return None
+
+    def _create_unsupported_boundary_result(
+        self,
+        reasoning: ReasoningOutput,
+        problem_type: str,
+        reason: str,
+        message: str,
+    ) -> VerificationResult:
+        metadata = getattr(reasoning, "processing_metadata", {}) or {}
+        return self._create_failure_result(
+            reasoning,
+            message,
+            generated_code="",
+            status=VerificationStatus.UNSUPPORTED,
+            error_type=ErrorType.SYMBOLIC_FAILURE,
+            metadata={
+                "unsupported": True,
+                "unsupported_source": "pre_verification_boundary",
+                "unsupported_reason": reason,
+                "problem_type": problem_type,
+                "verification_boundary": reason,
+                "visual_context_required": bool(metadata.get("visual_context_required")),
+                "visual_context_attached": bool(metadata.get("visual_context_attached")),
+            },
+        )
+
+    def _is_abstract_proof_boundary(self, problem_type: str, text: str) -> bool:
+        if problem_type == "proof":
+            return True
+        proof_markers = (
+            "prove that",
+            "show that",
+            "if and only if",
+            "necessary and sufficient",
+            "for all",
+            "there exists",
+            "∀",
+            "∃",
+        )
+        return any(marker in text for marker in proof_markers)
+
+    def _is_geometry_boundary(self, problem_type: str, text: str) -> bool:
+        if problem_type == "geometry":
+            return True
+        geometry_markers = (
+            "triangle",
+            "circle",
+            "angle",
+            "congruent triangles",
+            "similar triangles",
+            "parallel lines",
+            "perpendicular",
+        )
+        symbolic_markers = (
+            "solve",
+            "equation",
+            "differentiate",
+            "integrate",
+            "limit",
+            "factor",
+            "expand",
+        )
+        return any(marker in text for marker in geometry_markers) and not any(
+            marker in text for marker in symbolic_markers
+        )
+
+    def _is_advanced_analysis_boundary(self, problem_type: str, text: str) -> bool:
+        advanced_markers = (
+            "uniform convergence",
+            "pointwise convergence",
+            "measure",
+            "lebesgue",
+            "compact",
+            "banach",
+            "hilbert",
+            "epsilon-delta",
+            "epsilon delta",
+            "real analysis",
+            "complex analysis",
+        )
+        simple_calculus = re.search(r"\b(derivative|differentiate|integral|integrate|limit)\b", text)
+        return any(marker in text for marker in advanced_markers) and not simple_calculus
 
     def _execution_error_message(self, exec_result: Any) -> str:
         if not exec_result:

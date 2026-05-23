@@ -168,6 +168,22 @@ class VisionPipeline:
         print("--- Block to Problem Linking Complete ---")
         return problems
 
+    def _problem_appears_visual_dependent(self, problem: Problem) -> bool:
+        text = problem.problem_text.lower()
+        visual_markers = (
+            "figure",
+            "diagram",
+            "graph",
+            "table",
+            "chart",
+            "shown",
+            "below",
+            "above",
+            "image",
+            "picture",
+        )
+        return problem.problem_type == "geometry" or any(marker in text for marker in visual_markers)
+
     def _associate_descriptions_to_problems(self, problems: List[Problem], document: UIDocument) -> List[Problem]:
         """
         Linus's Note: I have rewritten this function to fix the silent failure.
@@ -178,9 +194,15 @@ class VisionPipeline:
             return problems # No descriptions to associate.
 
         for problem in problems:
-            # Only associate descriptions if the LLM grouper identified a reference (e.g., "Figure 1").
-            # This prevents associating a graph with a problem that doesn't mention one.
-            if problem.figure_references:
+            # Prefer explicit figure references, but also attach available visual
+            # descriptions when a single visual-dependent problem is present. This
+            # avoids dropping diagrams that are adjacent to, but not named by, the
+            # OCR text.
+            should_attach = bool(problem.figure_references)
+            if not should_attach and len(problems) == 1 and self._problem_appears_visual_dependent(problem):
+                should_attach = True
+
+            if should_attach:
                 # For simplicity, we associate all available descriptions. A more advanced
                 # implementation could match "Figure 1" to a specific description.
                 problem.referenced_figure_descriptions = figure_descriptions
@@ -196,6 +218,10 @@ class VisionPipeline:
 
         # Start with the user's potentially edited problem statement.
         final_problem_statement = user_selection.edited_latex
+        visual_context_required = (
+            self._problem_appears_visual_dependent(selected_problem)
+            or bool(selected_problem.figure_references)
+        )
 
         # If we have stored descriptions for this problem, append them.
         # if selected_problem.referenced_figure_descriptions:
@@ -231,9 +257,15 @@ class VisionPipeline:
             visual_context=visual_context,
             source_metadata={
                 "problem_id": user_selection.problem_id,
+                "problem_type": selected_problem.problem_type.value,
+                "figure_references": selected_problem.figure_references,
                 "processing_method": "marker_then_semantic_grouping",
                 "total_available_blocks": len(ui_document.blocks),
                 "total_problems_found": len(ui_document.problems),
+                "visual_context_required": visual_context_required,
+                "visual_context_attached": visual_context is not None,
+                "visual_context_description_count": len(selected_problem.referenced_figure_descriptions),
+                "visual_context_source": "referenced_figure_descriptions" if visual_context is not None else None,
                 "vlm_analysis_performed": visual_context is not None,
                 "document_dimensions": ui_document.dimensions
             }

@@ -22,6 +22,7 @@ class VerificationStatus(str, Enum):
     FAILED_REASONING = "failed_reasoning"
     FAILED_CODEGEN = "failed_codegen"
     FAILED_CONTRACT = "failed_contract"
+    NEEDS_VISUAL_CONTEXT = "needs_visual_context"
     UNSUPPORTED = "unsupported"
     FAILED_PIPELINE = "failed_pipeline"
 

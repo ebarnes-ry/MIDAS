@@ -90,12 +90,18 @@ class ReasoningPipeline:
             schema=schema,
         )
 
-        return self.parse_model_response(
+        output = self.parse_model_response(
             response=response,
             original_problem=reasoning_input.problem_statement,
             prompt_ref=prompt_ref,
             schema=schema,
         )
+        if reasoning_input.source_metadata:
+            output.processing_metadata.update(reasoning_input.source_metadata)
+        output.processing_metadata.update({
+            "visual_context_attached": bool(reasoning_input.visual_context and reasoning_input.visual_context.strip()),
+        })
+        return output
 
     def schema_for_task_prompt(self, task: str, prompt_ref: str):
         config = getattr(self.model_manager, "config", {}) or {}

@@ -154,7 +154,7 @@ export interface CompletePipelineResponse {
       }>;
       repair_history: RepairAttempt[];
       step_verifications: StepVerificationResponse[];
-      metadata: {
+      metadata: Record<string, any> & {
         reasoning_repair_attempts: number;
         codegen_repair_attempts: number;
       };

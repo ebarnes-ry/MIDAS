@@ -877,6 +877,7 @@ class TestVerificationIntegration:
                 "failed_reasoning",
                 "failed_codegen",
                 "failed_contract",
+                "needs_visual_context",
                 "unsupported",
                 "failed_pipeline",
             ]

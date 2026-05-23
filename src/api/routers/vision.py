@@ -462,7 +462,8 @@ async def complete_pipeline(request: Request, body: UserSelectionRequest, sessio
                 ],
                 "metadata": {
                     "reasoning_repair_attempts": len([r for r in repair_history if r.repair_type == "reasoning"]),
-                    "codegen_repair_attempts": len([r for r in repair_history if r.repair_type == "codegen"])
+                    "codegen_repair_attempts": len([r for r in repair_history if r.repair_type == "codegen"]),
+                    **verification_result.metadata,
                 }
             },
             "total_processing_time": total_processing_time
