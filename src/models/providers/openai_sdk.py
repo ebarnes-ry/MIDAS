@@ -85,6 +85,7 @@ class OpenAIProvider(ModelProvider):
                 "type": "json_schema",
                 "json_schema": {
                     "name": "response_schema",
+                    "strict": True,
                     "schema": req.schema.model_json_schema()
                 }
             }

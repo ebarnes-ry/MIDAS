@@ -74,7 +74,7 @@
 
 import json
 from typing import List, Dict, Tuple, Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from dataclasses import dataclass
 
 from src.models.manager import ModelManager
@@ -82,10 +82,14 @@ from .types import UIDocument, UIBlock, Problem, ProblemType
 
 # Pydantic model for robust parsing of the new, simpler LLM response
 class ProblemSchema(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     problem_text: str
-    figure_references: List[str] = Field(default_factory=list)
+    figure_references: List[str]
 
 class GroupingResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     problems: List[ProblemSchema]
 
 @dataclass

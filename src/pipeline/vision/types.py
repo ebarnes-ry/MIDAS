@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 from enum import Enum
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from typing import List, Dict, Any, Optional, Tuple, Union, Literal
 
 # Input types
@@ -61,12 +61,16 @@ class UIDocument:
 
 # VLM Schema types...
 class Visual(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     description: str
     visual_type: Literal["Graph", "Plot", "Chart", "Figure", "Image", "Picture", "Table", "Matrix", "Grid", "Spreadsheet", "Diagram", "Geometry_Figure", "Geometric_Figure", "Shape", "Illustration", "Drawing", "Sketch"]
     data: Optional[Union[List[List[Any]], Dict[str, Any]]] = None
 
 class VisualContext(BaseModel):
-    elements: List[Visual] = []
+    model_config = ConfigDict(extra="forbid")
+
+    elements: List[Visual] = Field(default_factory=list)
     summary: Optional[str] = None
     contains_essential_info: bool
 
@@ -78,5 +82,7 @@ class VisionFinalOutput:
     source_metadata: Dict[str, Any]
 
 class MathValidationResult(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     contains_math: bool = Field(..., description="True if the image contains a math problem, False otherwise.")
     reason: str = Field(..., description="A brief explanation for the decision.")

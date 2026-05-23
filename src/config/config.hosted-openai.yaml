@@ -50,7 +50,7 @@ tasks:
     provider: openai
     model: gpt-4.1-mini
     params:
-      temperature: 0.2
+      temperature: 0.1
       max_tokens: 4000
     prompt_ref: reasoning/solve@v3
     timeout: 120
@@ -59,7 +59,7 @@ tasks:
     provider: openai
     model: gpt-4.1-mini
     params:
-      temperature: 0.2
+      temperature: 0.1
       max_tokens: 4000
     prompt_ref: reasoning/repair@v2
     timeout: 120
