@@ -118,13 +118,13 @@ class TrajectoryLogger:
         ]
 
         step_verifs = getattr(verification_result, "step_verifications", [])
-        errors = [
-            {
-                "error_type": e.error_type.value if hasattr(e.error_type, "value") else str(e.error_type),
-                "message": e.message,
-            }
-            for e in getattr(verification_result, "errors", [])
-        ]
+        errors = []
+        for e in getattr(verification_result, "errors", []):
+            error_type = getattr(e, "error_type", "unknown")
+            errors.append({
+                "error_type": error_type.value if hasattr(error_type, "value") else str(error_type),
+                "message": getattr(e, "message", str(e)),
+            })
 
         traj.attempts.append(AttemptRecord(
             attempt_number=attempt_number,

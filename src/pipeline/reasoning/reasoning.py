@@ -22,6 +22,22 @@ _STRIP_THINK_RE = re.compile(
 class ReasoningContractError(ValueError):
     """Raised when a reasoning model response violates the structured contract."""
 
+    def __init__(
+        self,
+        message: str,
+        *,
+        prompt_ref: str = "",
+        model: str | None = None,
+        original_problem: str = "",
+        raw_output: str = "",
+    ):
+        super().__init__(message)
+        self.message = message
+        self.prompt_ref = prompt_ref
+        self.model = model
+        self.original_problem = original_problem
+        self.raw_output = raw_output
+
 
 class ReasoningStepSchema(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -288,10 +304,17 @@ class ReasoningPipeline:
         )
         footer = "=== RAW REASONING MODEL OUTPUT END ==="
         logger.error("%s\n%s\n%s", header, content, footer)
-        print(header)
-        print(content)
-        print(footer)
-        raise ReasoningContractError(message)
+        print(
+            "Reasoning contract failure: "
+            f"{message} (prompt_ref={prompt_ref}, model={model})"
+        )
+        raise ReasoningContractError(
+            message,
+            prompt_ref=prompt_ref,
+            model=model,
+            original_problem=original_problem,
+            raw_output=content,
+        )
 
     def _extract_final_answer(self, text: str) -> str:
         start = text.find('\\boxed{')

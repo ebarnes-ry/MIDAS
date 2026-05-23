@@ -16,7 +16,7 @@ from ..models.reasoning import (
 )
 from ..dependencies.session import get_model_manager
 from src.models.manager import ModelManager
-from src.pipeline.reasoning.reasoning import ReasoningPipeline
+from src.pipeline.reasoning.reasoning import ReasoningContractError, ReasoningPipeline
 from src.pipeline.reasoning.feedback import FeedbackGenerator
 from src.pipeline.reasoning.types import ReasoningInput, ReasoningStep
 
@@ -85,6 +85,33 @@ async def process_reasoning(
             message="Reasoning processing completed successfully",
             timestamp=time.strftime("%Y-%m-%d %H:%M:%S"),
             data=response_data
+        )
+    except ReasoningContractError as e:
+        processing_time = time.time() - start_time
+        print(f"Reasoning contract failure: {e.message}")
+
+        response_data = ReasoningData(
+            original_problem=request.problem_statement,
+            steps=[],
+            worked_solution="",
+            final_answer="",
+            think_reasoning="",
+            processing_time=processing_time,
+            processing_metadata={
+                "status": "failed_contract",
+                "error_type": "contract_violation",
+                "error": e.message,
+                "prompt_ref": e.prompt_ref,
+                "model": e.model,
+                "raw_response_length": len(e.raw_output or ""),
+            },
+        )
+
+        return ReasoningResponse(
+            success=False,
+            message="Reasoning output violated the structured contract",
+            timestamp=time.strftime("%Y-%m-%d %H:%M:%S"),
+            data=response_data,
         )
         
     except Exception as e:

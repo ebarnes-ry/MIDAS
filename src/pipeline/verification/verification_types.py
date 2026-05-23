@@ -42,7 +42,7 @@ class CodeExecutionResult(BaseModel):
 
 class VerificationResult(BaseModel):
     """The complete, final outcome of the verification pipeline."""
-    status: str  # "verified", "failed_reasoning", "failed_codegen", "failed_pipeline"
+    status: str  # "verified", "failed_reasoning", "failed_codegen", "failed_contract", "failed_pipeline"
     confidence_score: float
     reasoning_output: Any  # Can hold the ReasoningOutput object
     generated_code: str
@@ -52,4 +52,3 @@ class VerificationResult(BaseModel):
     errors: List[VerificationError] = Field(default_factory=list)
     repair_history: List[Dict[str, Any]] = Field(default_factory=list)
     metadata: Dict[str, Any] = Field(default_factory=dict)
-

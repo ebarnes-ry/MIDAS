@@ -24,9 +24,11 @@ from ..models.reasoning import ReasoningExplainRequest, ReasoningExplainResponse
 from ..dependencies.session import get_session_manager, get_model_manager, SessionManager
 from src.models.manager import ModelManager
 from src.pipeline.vision.vision import VisionPipeline
-from src.pipeline.reasoning.reasoning import ReasoningPipeline
+from src.pipeline.reasoning.reasoning import ReasoningContractError, ReasoningPipeline
 from src.pipeline.reasoning.types import ReasoningInput, ReasoningOutput
 from src.pipeline.verification.verification_orchestrator import VerificationOrchestrator
+from src.pipeline.verification.verification_types import ErrorType, VerificationError, VerificationResult
+from src.pipeline.trajectory import TrajectoryLogger
 
 router = APIRouter()
 
@@ -250,7 +252,131 @@ async def complete_pipeline(request: Request, body: UserSelectionRequest, sessio
         reasoning_start_time = time.time()
         reasoning_pipeline = ReasoningPipeline(model_manager)
         reasoning_input = ReasoningInput(problem_statement=vision_output.problem_statement, visual_context=vision_output.visual_context.summary if vision_output.visual_context else None, source_metadata=vision_output.source_metadata)
-        reasoning_output = reasoning_pipeline.process(reasoning_input)
+        try:
+            reasoning_output = reasoning_pipeline.process(reasoning_input)
+        except ReasoningContractError as e:
+            reasoning_time = time.time() - reasoning_start_time
+            total_processing_time = time.time() - full_start_time
+            synthetic_reasoning = ReasoningOutput(
+                original_problem=vision_output.problem_statement,
+                steps=[],
+                final_answer="",
+                think_reasoning="",
+                processing_metadata={
+                    "status": "failed_contract",
+                    "error_type": "contract_violation",
+                    "error": e.message,
+                    "prompt_ref": e.prompt_ref,
+                    "model": e.model,
+                    "raw_response_length": len(e.raw_output or ""),
+                },
+            )
+            contract_result = VerificationResult(
+                status="failed_contract",
+                confidence_score=0.0,
+                reasoning_output=synthetic_reasoning,
+                generated_code="",
+                answer_match=None,
+                errors=[
+                    VerificationError(
+                        error_type=ErrorType.CONTRACT_VIOLATION,
+                        message=e.message,
+                    )
+                ],
+                metadata={
+                    "contract_failure": True,
+                    "contract_source": "reasoning_solve",
+                    "prompt_ref": e.prompt_ref,
+                    "model": e.model,
+                    "raw_response_length": len(e.raw_output or ""),
+                },
+            )
+            try:
+                logger = TrajectoryLogger(
+                    log_path=model_manager.config.get(
+                        "trajectory_log_path",
+                        "trajectories/midas_trajectories.jsonl",
+                    )
+                )
+                tid = logger.start_trajectory(
+                    problem_statement=vision_output.problem_statement,
+                    problem_type=str(vision_output.source_metadata.get("problem_type", "unknown")),
+                    problem_source="vision_complete",
+                )
+                logger.log_attempt(
+                    trajectory_id=tid,
+                    attempt_number=1,
+                    reasoning_output=synthetic_reasoning,
+                    verification_result=contract_result,
+                    generated_code="",
+                )
+                logger.close_trajectory(
+                    trajectory_id=tid,
+                    final_status="failed_contract",
+                    max_attempts=1,
+                )
+            except Exception as log_error:
+                print(f"Could not log reasoning contract failure trajectory: {log_error}")
+            contract_metadata = {
+                "contract_failure": True,
+                "contract_source": "reasoning_solve",
+                "prompt_ref": e.prompt_ref,
+                "model": e.model,
+                "raw_response_length": len(e.raw_output or ""),
+            }
+            response_data = {
+                "vision": {
+                    "problem_statement": vision_output.problem_statement,
+                    "visual_context": vision_output.visual_context,
+                    "processing_time": vision_time,
+                    "metadata": vision_output.source_metadata,
+                },
+                "reasoning": {
+                    "original_problem": vision_output.problem_statement,
+                    "steps": [],
+                    "worked_solution": "",
+                    "final_answer": "",
+                    "think_reasoning": "",
+                    "processing_time": reasoning_time,
+                    "metadata": {
+                        "status": "failed_contract",
+                        "error_type": "contract_violation",
+                        "error": e.message,
+                        **contract_metadata,
+                    },
+                },
+                "verification": {
+                    "original_problem": vision_output.problem_statement,
+                    "worked_solution": "",
+                    "final_answer": "",
+                    "generated_code": "",
+                    "processing_time": 0.0,
+                    "status": "failed_contract",
+                    "confidence_score": 0.0,
+                    "answer_match": None,
+                    "errors": [{
+                        "error_type": "contract_violation",
+                        "message": e.message,
+                        "line_number": None,
+                        "problematic_code": None,
+                        "suggested_fix": None,
+                        "traceback": None,
+                    }],
+                    "repair_history": [],
+                    "step_verifications": [],
+                    "metadata": {
+                        "reasoning_repair_attempts": 0,
+                        "codegen_repair_attempts": 0,
+                        **contract_metadata,
+                    },
+                },
+                "total_processing_time": total_processing_time,
+            }
+            return {
+                "success": False,
+                "message": "Reasoning output violated the structured contract",
+                "data": response_data,
+            }
         reasoning_time = time.time() - reasoning_start_time
         verification_start_time = time.time()
         verification_orchestrator = VerificationOrchestrator(model_manager)

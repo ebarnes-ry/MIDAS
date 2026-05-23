@@ -8,8 +8,8 @@ from typing import Tuple, Optional, List
 from dataclasses import dataclass, field
 
 from .verification import VerificationPipeline
-from .verification_types import VerificationResult
-from ..reasoning.reasoning import ReasoningPipeline
+from .verification_types import CodeExecutionResult, ErrorType, VerificationError, VerificationResult
+from ..reasoning.reasoning import ReasoningContractError, ReasoningPipeline
 from ..reasoning.types import ReasoningOutput
 from src.models.manager import ModelManager
 from src.pipeline.trajectory import TrajectoryLogger
@@ -40,6 +40,7 @@ class VerificationOrchestrator:
         demo = model_manager.config.get("demo", {})
         self._max_repair_attempts = demo.get("max_repair_attempts", 2)
         self._max_tokens_per_request = demo.get("max_tokens_per_request", None)
+        self._last_repair_contract_error: Optional[ReasoningContractError] = None
 
     def verify_with_repair(
         self,
@@ -63,19 +64,35 @@ class VerificationOrchestrator:
             if attempt > 0:
                 print(f"--- Reasoning Repair Attempt {attempt}/{max_reasoning_attempts} ---")
                 start_time = time.time()
+                self._last_repair_contract_error = None
                 repaired_reasoning = self._attempt_reasoning_repair(current_reasoning, verification_result)
                 processing_time = time.time() - start_time
 
+                contract_error = self._last_repair_contract_error
                 repair_history.append(RepairAttempt(
                     attempt_number=attempt,
                     repair_type="reasoning",
                     reason=f"Reasoning verification failed with status: {verification_result.status}",
                     success=repaired_reasoning is not None,
                     processing_time=processing_time,
+                    error_message=contract_error.message if contract_error else None,
                     repaired_reasoning=repaired_reasoning,
                 ))
 
                 if not repaired_reasoning:
+                    if contract_error:
+                        verification_result = self._create_contract_failure_result(
+                            current_reasoning,
+                            contract_error,
+                            source="reasoning_repair",
+                        )
+                        self.logger.log_attempt(
+                            trajectory_id=tid,
+                            attempt_number=attempt + 1,
+                            reasoning_output=current_reasoning,
+                            verification_result=verification_result,
+                            generated_code="",
+                        )
                     print("Reasoning repair failed to produce a new solution. Halting.")
                     break
 
@@ -154,6 +171,10 @@ class VerificationOrchestrator:
                 "original_failure": verification_result.status,
             })
             return repaired
+        except ReasoningContractError as e:
+            self._last_repair_contract_error = e
+            print(f"Reasoning repair violated the structured contract: {e.message}")
+            return None
         except Exception as e:
             print(f"Error during reasoning repair call: {e}")
             return None
@@ -166,3 +187,40 @@ class VerificationOrchestrator:
             for step in failed_steps:
                 context_parts.append(f"  - Step {step.step_number}: {step.description}")
         return "\n".join(context_parts)
+
+    def _create_contract_failure_result(
+        self,
+        reasoning: ReasoningOutput,
+        error: ReasoningContractError,
+        *,
+        source: str,
+    ) -> VerificationResult:
+        return VerificationResult(
+            status="failed_contract",
+            confidence_score=0.0,
+            reasoning_output=reasoning,
+            generated_code="",
+            execution_result=CodeExecutionResult(
+                success=False,
+                stdout="",
+                stderr=error.message,
+                execution_time=0.0,
+                exception_type="ReasoningContractError",
+                exception_message=error.message,
+                exception_traceback="",
+            ),
+            answer_match=None,
+            errors=[
+                VerificationError(
+                    error_type=ErrorType.CONTRACT_VIOLATION,
+                    message=error.message,
+                )
+            ],
+            metadata={
+                "contract_failure": True,
+                "contract_source": source,
+                "prompt_ref": error.prompt_ref,
+                "model": error.model,
+                "raw_response_length": len(error.raw_output or ""),
+            },
+        )

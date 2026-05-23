@@ -118,11 +118,8 @@ def test_reasoning_pipeline_rejects_unstructured_prose(capsys):
         ReasoningPipeline(manager).process(ReasoningInput(problem_statement="x + 1 = 2"))
 
     captured = capsys.readouterr()
-    assert "=== REASONING CONTRACT FAILURE ===" in captured.out
     assert "Reasoning response missing required <solution> block." in captured.out
-    assert "=== RAW REASONING MODEL OUTPUT BEGIN ===" in captured.out
-    assert "1. Subtract 1 from both sides.\n2. Therefore x = 1." in captured.out
-    assert "=== RAW REASONING MODEL OUTPUT END ===" in captured.out
+    assert "1. Subtract 1 from both sides.\n2. Therefore x = 1." not in captured.out
 
 
 def test_reasoning_pipeline_requires_answer_block():
@@ -272,6 +269,89 @@ def test_hosted_reasoning_repair_uses_configured_json_schema_contract():
     assert result.final_answer == "1"
     assert result.processing_metadata["source"] == "reasoning_repair"
     assert result.processing_metadata["reasoning_contract"] == "json_schema"
+
+
+def test_reasoning_contract_error_preserves_raw_output_off_api_surface():
+    raw_output = "unstructured raw model output"
+    response = SimpleNamespace(content=raw_output, meta={"model": "test-model"})
+    manager = RecordingManager({"tasks": {}}, response)
+
+    with pytest.raises(ReasoningContractError) as exc_info:
+        ReasoningPipeline(manager).process(ReasoningInput(problem_statement="x + 1 = 2"))
+
+    err = exc_info.value
+    assert err.message == "Reasoning response missing required <solution> block."
+    assert err.prompt_ref == "reasoning/solve@v2"
+    assert err.model == "test-model"
+    assert err.raw_output == raw_output
+
+
+def test_repair_contract_failure_returns_failed_contract_and_logs_attempt(tmp_path):
+    failed_reasoning = ReasoningOutput(
+        original_problem="x + 1 = 2",
+        steps=[ReasoningStep(step_number=1, claim="x = 3", justification="bad algebra")],
+        final_answer="3",
+        think_reasoning="",
+    )
+    initial_result = SimpleNamespace(
+        status="failed_reasoning",
+        errors=[SimpleNamespace(message="Answer mismatch")],
+        step_verifications=[],
+    )
+
+    class Verification:
+        def __init__(self):
+            self.calls = 0
+
+        def verify(self, reasoning):
+            self.calls += 1
+            return initial_result
+
+    class BadRepairManager(RecordingManager):
+        def call(self, **kwargs):
+            self.calls.append(kwargs)
+            return SimpleNamespace(
+                parsed=None,
+                content="{bad json",
+                meta={"model": "repair-model", "validation_error": "invalid json"},
+            )
+
+    manager = BadRepairManager(
+        {
+            "trajectory_log_path": str(tmp_path / "trajectories.jsonl"),
+            "tasks": {
+                "reasoning_repair": {
+                    "provider": "openai",
+                    "prompt_ref": "reasoning/repair@v2",
+                }
+            },
+        },
+        SimpleNamespace(content="", meta={}),
+    )
+    orchestrator = VerificationOrchestrator.__new__(VerificationOrchestrator)
+    orchestrator.model_manager = manager
+    orchestrator.verification_pipeline = Verification()
+    orchestrator.reasoning_pipeline = ReasoningPipeline(manager)
+    orchestrator.logger = __import__(
+        "src.pipeline.trajectory", fromlist=["TrajectoryLogger"]
+    ).TrajectoryLogger(log_path=str(tmp_path / "trajectories.jsonl"))
+    orchestrator._max_repair_attempts = 1
+    orchestrator._max_tokens_per_request = None
+    orchestrator._last_repair_contract_error = None
+
+    result, repair_history = orchestrator.verify_with_repair(
+        failed_reasoning,
+        max_reasoning_attempts=1,
+    )
+
+    assert result.status == "failed_contract"
+    assert result.errors[0].error_type.value == "contract_violation"
+    assert result.metadata["contract_source"] == "reasoning_repair"
+    assert result.metadata["raw_response_length"] == len("{bad json")
+    assert repair_history[0].success is False
+    assert "Reasoning JSON schema response failed validation" in repair_history[0].error_message
+    log_text = (tmp_path / "trajectories.jsonl").read_text()
+    assert '"final_status": "failed_contract"' in log_text
 
 
 def test_marker_does_not_require_gemini_when_llm_disabled(monkeypatch):
