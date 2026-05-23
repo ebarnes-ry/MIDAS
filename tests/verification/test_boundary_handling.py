@@ -170,6 +170,7 @@ def test_equation_fragment_descriptions_are_not_attached_as_visual_context():
     problem = Problem(
         problem_id="problem_1",
         problem_text=r"$\int_0^2 (3x^2 - 2x + 1) \, dx$",
+        figure_references=["Picture 1"],
         block_ids=["eq_1"],
         problem_type=ProblemType.CALCULUS,
     )
@@ -219,6 +220,7 @@ def test_equation_fragment_descriptions_are_not_attached_as_visual_context():
     )
 
     assert document.problems[0].referenced_figure_descriptions == []
+    assert document.problems[0].figure_references == []
     assert output.visual_context is None
     assert output.source_metadata["visual_context_required"] is False
     assert output.source_metadata["visual_context_attached"] is False
@@ -317,6 +319,67 @@ def test_api_problem_metadata_uses_filtered_visual_context_not_raw_marker_noise(
     assert api_document.problems[0].visual_context_attached is False
     assert api_document.problems[0].visual_context_summary is None
     assert api_document.problems[0].visual_context_description_count == 0
+
+
+def test_plain_numeral_description_with_graphics_word_is_not_visual_context():
+    pipeline = VisionPipeline.__new__(VisionPipeline)
+    problem = Problem(
+        problem_id="problem_1",
+        problem_text=r"$2x^2 - 7x + 3 = 0$",
+        figure_references=["Picture 1"],
+        block_ids=["eq_1"],
+        problem_type=ProblemType.ALGEBRA,
+    )
+    document = UIDocument(
+        blocks=[
+            UIBlock(
+                id="eq_1",
+                block_type="Equation",
+                html="",
+                polygon=[0, 0, 10, 0, 10, 10, 0, 10],
+                bbox=[0, 0, 10, 10],
+                children=[],
+                section_hierarchy={},
+                latex_content=r"2x^2 - 7x + 3 = 0",
+                is_editable=True,
+            ),
+            UIBlock(
+                id="picture_1",
+                block_type="Picture",
+                html="",
+                polygon=[0, 0, 10, 0, 10, 10, 0, 10],
+                bbox=[0, 0, 10, 10],
+                children=[],
+                section_hierarchy={},
+                image_description=(
+                    'The image consists of a large, bold numeral "0" centered on a white '
+                    "background without any other text or graphics."
+                ),
+            ),
+        ],
+        full_page_text=problem.problem_text,
+        images={},
+        metadata={},
+        dimensions=(10, 10),
+        problems=[problem],
+    )
+
+    document.problems = pipeline._associate_descriptions_to_problems(document.problems, document)
+    output = pipeline.process_selection(
+        UserSelection(
+            problem_id="problem_1",
+            edited_latex=problem.problem_text,
+            original_image_path="",
+        ),
+        document,
+        Image.new("RGB", (10, 10), "white"),
+    )
+
+    assert document.problems[0].referenced_figure_descriptions == []
+    assert document.problems[0].figure_references == []
+    assert output.visual_context is None
+    assert output.source_metadata["visual_context_required"] is False
+    assert output.source_metadata["visual_context_attached"] is False
 
 
 def test_visual_selection_accepts_user_override_and_removal():

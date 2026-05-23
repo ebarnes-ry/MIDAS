@@ -323,6 +323,7 @@ def test_complete_filters_equation_fragment_visual_context_before_reasoning():
     problem = Problem(
         problem_id="problem-1",
         problem_text=r"$\int_0^2 (3x^2 - 2x + 1) \, dx$",
+        figure_references=["Picture 1"],
         block_ids=["eq-1"],
         problem_type=ProblemType.CALCULUS,
     )
@@ -418,6 +419,7 @@ def test_complete_filters_equation_fragment_visual_context_before_reasoning():
     assert response.status_code == 200
     reasoning_input = process_reasoning.call_args.args[0]
     assert reasoning_input.visual_context is None
+    assert ui_document.problems[0].figure_references == []
     payload = response.json()
     assert payload["data"]["vision"]["visual_context"] is None
     assert payload["data"]["vision"]["metadata"]["visual_context_required"] is False

@@ -252,7 +252,27 @@ class VisionPipeline:
             "grid",
             "matrix",
         )
-        return any(marker in text for marker in positive_visual_markers)
+        return any(
+            re.search(rf"\b{re.escape(marker)}\b", text)
+            for marker in positive_visual_markers
+        )
+
+    def _drop_unmentioned_figure_references(self, problem: Problem) -> None:
+        """
+        The grouping model may infer references like "Picture 1" from Marker
+        fragment descriptions that were appended to full_page_text. Keep only
+        references that are actually present in the problem statement.
+        """
+        if not problem.figure_references:
+            return
+
+        normalized_problem = self._normalize_text(problem.problem_text)
+        problem.figure_references = [
+            reference
+            for reference in problem.figure_references
+            if self._normalize_text(reference)
+            and self._normalize_text(reference) in normalized_problem
+        ]
 
     def _description_overlaps_problem_text(self, description: str, problem: Problem, document: UIDocument) -> bool:
         """
@@ -325,6 +345,7 @@ class VisionPipeline:
             return problems # No descriptions to associate.
 
         for problem in problems:
+            self._drop_unmentioned_figure_references(problem)
             meaningful_descriptions = [
                 block.image_description
                 for block in described_blocks
