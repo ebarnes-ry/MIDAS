@@ -71,6 +71,7 @@ class VerificationPipeline:
                 reasoning,
                 fault_status=fault_status,
                 fault_error_type=fault_error_type,
+                fault_category=e.category,
             )
         except Exception as e:
             return self._create_failure_result(
@@ -106,6 +107,7 @@ class VerificationPipeline:
                 reasoning,
                 fault_status=VerificationStatus.FAILED_CODEGEN,
                 fault_error_type=self._error_type_for_execution(execution_result),
+                fault_category=self._fault_category_for_execution(execution_result),
             )
 
         # --- 4. PARSE THE OUTPUT (CONTRACT ADHERENCE) ---
@@ -125,6 +127,7 @@ class VerificationPipeline:
                 f"Output parsing failed: {parsing_error}",
                 fault_status=VerificationStatus.FAILED_CONTRACT,
                 fault_error_type=ErrorType.CONTRACT_VIOLATION,
+                fault_category="output_contract",
             )
 
         if not final_verdict:
@@ -137,6 +140,7 @@ class VerificationPipeline:
                 "Missing final_answer_verified JSON object in output.",
                 fault_status=VerificationStatus.FAILED_CONTRACT,
                 fault_error_type=ErrorType.CONTRACT_VIOLATION,
+                fault_category="missing_final_verdict",
             )
 
         # --- 5. CHECK VERIFICATION RESULTS ---
@@ -161,6 +165,7 @@ class VerificationPipeline:
         *,
         fault_status: VerificationStatus = VerificationStatus.FAILED_CODEGEN,
         fault_error_type: ErrorType = ErrorType.RUNTIME_ERROR,
+        fault_category: str = "runtime",
     ) -> VerificationResult:
         """
         Attempts a single, targeted repair of faulty code generation.
@@ -168,7 +173,7 @@ class VerificationPipeline:
         error_message = extra_error or self._execution_error_message(exec_result)
         
         # Create a specific repair prompt
-        repair_prompt = self._create_codegen_repair_prompt(original_code, error_message)
+        repair_prompt = self._create_codegen_repair_prompt(original_code, error_message, fault_category)
         
         try:
             # Call LLM for repair
@@ -216,12 +221,78 @@ class VerificationPipeline:
                 metadata={
                     "codegen_failure": fault_status == VerificationStatus.FAILED_CODEGEN,
                     "contract_failure": fault_status == VerificationStatus.FAILED_CONTRACT,
+                    "codegen_fault_category": fault_category,
                 },
                 execution_result=exec_result if isinstance(exec_result, CodeExecutionResult) else None,
             )
 
-    def _create_codegen_repair_prompt(self, code: str, error: str) -> str:
+    def _codegen_repair_instructions_for_category(self, category: str) -> str:
+        instructions = {
+            "emit_final_count": (
+                "Category-specific repair for emit_final_count:\n"
+                "- Keep every existing emit_step(...) call and its mathematical verified value.\n"
+                "- Remove every extra emit_final(...) call.\n"
+                "- If there is no emit_final(...) call, add exactly one final emit_final(...) after all step checks.\n"
+                "- The single emit_final(...) must be the last verification emission in the script.\n"
+                "- Do not put emit_final(...) inside both try and except branches; that still counts as multiple calls and violates the static contract.\n"
+                "- If final-answer checking needs error handling, compute final_verified, final_answer, and final_note variables inside the try/except, then call emit_final(final_verified, final_answer, final_note) exactly once after the try/except.\n"
+                "- Do not change mathematical checks, symbolic expressions, or step booleans except where needed to route values through the required helpers."
+            ),
+            "missing_helper": (
+                "Category-specific repair for missing_helper:\n"
+                "- Add the required emit_step(...) and/or emit_final(...) helper definitions using the v7 contract shape.\n"
+                "- Route every step emission through emit_step(...) and the final verdict through exactly one emit_final(...).\n"
+                "- Do not change the mathematical checks."
+            ),
+            "forbidden_json_dumps": (
+                "Category-specific repair for forbidden_json_dumps:\n"
+                "- Remove all direct print(json.dumps(...)) calls outside emit_step/emit_final.\n"
+                "- Convert those emissions to emit_step(...) or the single emit_final(...), preserving the same verified values and notes.\n"
+                "- Do not change the mathematical checks."
+            ),
+            "simplify_instance_method": (
+                "Category-specific repair for simplify_instance_method:\n"
+                "- Replace instance calls like (a - b).simplify() with sp.simplify(sp.sympify(a) - sp.sympify(b)).\n"
+                "- Prefer the contract helper same_expr(a, b) when comparing symbolic expressions.\n"
+                "- Do not change the intended equality being checked."
+            ),
+            "syntax": (
+                "Category-specific repair for syntax:\n"
+                "- Fix only Python syntax and string-literal issues.\n"
+                "- Rewrite long descriptions/notes as safe single-line strings if needed.\n"
+                "- Do not change mathematical checks."
+            ),
+            "runtime_name_error": (
+                "Category-specific repair for runtime_name_error:\n"
+                "- Define missing local variables before use or replace incorrect variable names with the already-defined intended names.\n"
+                "- If the NameError is for a non-allowed builtin, avoid that builtin and use simpler explicit logic.\n"
+                "- Do not change mathematical checks except to use the correctly defined variable."
+            ),
+            "missing_final_verdict": (
+                "Category-specific repair for missing_final_verdict:\n"
+                "- Add exactly one emit_final(...) call after all emit_step(...) calls.\n"
+                "- Base the final verdict on the existing computed final-answer check if present.\n"
+                "- Do not add additional step emissions or change mathematical checks."
+            ),
+            "output_contract": (
+                "Category-specific repair for output_contract:\n"
+                "- Ensure emitted JSON keys match the v7 contract exactly.\n"
+                "- Use emit_step(...) for each step and exactly one emit_final(...) for the final verdict.\n"
+                "- Convert all SymPy values and booleans before JSON serialization."
+            ),
+        }
+        return instructions.get(
+            category,
+            "Category-specific repair for generic runtime/codegen fault:\n"
+            "- Fix the reported failure while preserving the existing mathematical checks.\n"
+            "- Keep one emit_step(...) per reasoning step and exactly one emit_final(...).",
+        )
+
+    def _create_codegen_repair_prompt(self, code: str, error: str, category: str = "runtime") -> str:
+        category_instructions = self._codegen_repair_instructions_for_category(category)
         return f"""The following Python code failed to execute or violated the verification contract.
+Fault category: {category}
+
 Error:
 ---
 {error}
@@ -231,6 +302,8 @@ Original Code:
 ---
 {code}
 ---
+{category_instructions}
+
 The code MUST adhere to the verification contract:
 - print exactly one JSON object per step and one final verdict JSON object
 - define and use emit_step(...) for every step
@@ -513,6 +586,14 @@ Return raw Python only. No markdown fences. Do not change the underlying mathema
         if "timeout" in exception_type:
             return ErrorType.TIMEOUT
         return ErrorType.RUNTIME_ERROR
+
+    def _fault_category_for_execution(self, exec_result: CodeExecutionResult) -> str:
+        exception_type = (exec_result.exception_type or "").lower()
+        if "nameerror" in exception_type:
+            return "runtime_name_error"
+        if "syntax" in exception_type:
+            return "syntax"
+        return "runtime"
 
     def _is_unsupported_error(self, error_text: str, exec_result: Optional[CodeExecutionResult] = None) -> bool:
         text = (

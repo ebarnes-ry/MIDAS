@@ -17,7 +17,11 @@ from types import SimpleNamespace
 
 from src.pipeline.verification.verification import VerificationPipeline
 from src.pipeline.verification.verification_orchestrator import VerificationOrchestrator
-from src.pipeline.verification.codegen import SymPyCodeGenerator, CodegenContractError
+from src.pipeline.verification.codegen import (
+    SymPyCodeGenerator,
+    CodegenContractError,
+    CodegenContractValidationError,
+)
 from src.pipeline.verification.executor import SafeExecutor
 from src.pipeline.verification.parser import VerificationOutputParser
 from src.pipeline.verification.verification_types import (
@@ -269,8 +273,9 @@ emit_step(1, "bad", verified, "")
 emit_final(True, "x", "")
 """
 
-        with pytest.raises(ValueError, match="do not call .simplify"):
+        with pytest.raises(CodegenContractValidationError, match="do not call .simplify") as exc:
             generator.validate_code_contract(bad_code)
+        assert exc.value.category == "simplify_instance_method"
 
     def test_validate_code_contract_rejects_direct_json_dumps(self):
         generator = SymPyCodeGenerator(Mock())
@@ -281,8 +286,9 @@ print(json.dumps({{"step": 1, "description": "bad", "verified": True, "note": ""
 emit_final(True, "x", "")
 """
 
-        with pytest.raises(ValueError, match="do not call json.dumps directly"):
+        with pytest.raises(CodegenContractValidationError, match="do not call json.dumps directly") as exc:
             generator.validate_code_contract(bad_code)
+        assert exc.value.category == "forbidden_json_dumps"
 
     def test_validate_code_contract_requires_final_verdict(self):
         generator = SymPyCodeGenerator(Mock())
@@ -292,8 +298,20 @@ import json
 emit_step(1, "ok", True, "")
 """
 
-        with pytest.raises(ValueError, match="exactly one emit_final"):
+        with pytest.raises(CodegenContractValidationError, match="exactly one emit_final") as exc:
             generator.validate_code_contract(bad_code)
+        assert exc.value.category == "emit_final_count"
+
+    def test_validate_code_contract_requires_emit_helpers(self):
+        generator = SymPyCodeGenerator(Mock())
+        bad_code = """import sympy as sp
+import json
+emit_final(True, "x", "")
+"""
+
+        with pytest.raises(CodegenContractValidationError, match="missing required helper") as exc:
+            generator.validate_code_contract(bad_code)
+        assert exc.value.category == "missing_helper"
 
     def test_generate_raises_contract_error_with_bad_simplify(
         self, mock_model_manager, linear_equation_reasoning
@@ -335,6 +353,7 @@ emit_final(True, "t = 1", "")
             generator.generate(linear_equation_reasoning)
         assert "unterminated" in str(exc.value)
         assert "emit_step" in exc.value.code
+        assert exc.value.category == "syntax"
 
     def test_generate_no_code_found(self, mock_model_manager, sample_reasoning):
         """Test generation when no code is found in response."""
@@ -762,6 +781,49 @@ emit_final(True, "t = 1", "confirmed")
         assert ".simplify()" not in result.generated_code
         assert mock_model_manager.call.call_args_list[0].kwargs["prompt_ref"] == "codegen/baseline_codegen@v7"
         assert mock_model_manager.call.call_args_list[1].kwargs["prompt_ref"] == "codegen/baseline_codegen@v7"
+
+    def test_emit_final_count_contract_fault_gets_targeted_repair_prompt(
+        self, mock_model_manager, linear_equation_reasoning
+    ):
+        bad_response = Mock()
+        bad_response.content = f"""import sympy as sp
+import json
+{V7_EMIT_HELPERS}
+emit_step(1, "Adding 2t gives 16 = 7t + 9", True, "confirmed")
+emit_step(2, "Subtracting 9 gives 7 = 7t", True, "confirmed")
+emit_step(3, "Dividing by 7 gives t = 1", True, "confirmed")
+emit_final(True, "t = 1", "confirmed")
+emit_final(True, "t = 1", "duplicate")
+"""
+        bad_response.meta = {"model": "test_model", "latency": 100}
+
+        repaired_response = Mock()
+        repaired_response.content = f"""import sympy as sp
+import json
+{V7_EMIT_HELPERS}
+emit_step(1, "Adding 2t gives 16 = 7t + 9", True, "confirmed")
+emit_step(2, "Subtracting 9 gives 7 = 7t", True, "confirmed")
+emit_step(3, "Dividing by 7 gives t = 1", True, "confirmed")
+emit_final(True, "t = 1", "confirmed")
+"""
+        repaired_response.meta = {"model": "test_model", "latency": 100}
+
+        mock_model_manager.call.side_effect = [bad_response, repaired_response]
+        mock_model_manager.prompts.load_prompt.return_value = SimpleNamespace(
+            system_template="verification system prompt"
+        )
+
+        pipeline = VerificationPipeline(mock_model_manager)
+        result = pipeline.verify(linear_equation_reasoning)
+
+        assert result.status == "verified"
+        assert result.metadata["repaired_from_codegen_fault"] is True
+        repair_prompt = mock_model_manager.call.call_args_list[1].kwargs["messages_override"][1]["content"]
+        assert "Fault category: emit_final_count" in repair_prompt
+        assert "Keep every existing emit_step(...) call" in repair_prompt
+        assert "Remove every extra emit_final(...) call" in repair_prompt
+        assert "Do not put emit_final(...) inside both try and except branches" in repair_prompt
+        assert result.generated_code.count("emit_final(") == 2  # helper definition plus one call
 
 
 class TestVerificationOrchestrator:

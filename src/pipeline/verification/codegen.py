@@ -14,6 +14,12 @@ class CodegenContractError(ValueError):
         self.category = category
 
 
+class CodegenContractValidationError(ValueError):
+    def __init__(self, message: str, category: str):
+        super().__init__(message)
+        self.category = category
+
+
 class SymPyCodeGenerator:
     """
     Generates SymPy verification code from reasoning outputs using a strict prompt.
@@ -76,9 +82,10 @@ class SymPyCodeGenerator:
         }
         missing_helpers = {"emit_step", "emit_final"} - function_names
         if missing_helpers:
-            raise ValueError(
+            raise CodegenContractValidationError(
                 "Generated verification code violates the v7 contract: "
-                f"missing required helper(s): {', '.join(sorted(missing_helpers))}."
+                f"missing required helper(s): {', '.join(sorted(missing_helpers))}.",
+                category="missing_helper",
             )
 
         emit_final_calls = 0
@@ -87,10 +94,11 @@ class SymPyCodeGenerator:
                 if node.func.attr == "simplify":
                     if isinstance(node.func.value, ast.Name) and node.func.value.id == "sp":
                         continue
-                    raise ValueError(
+                    raise CodegenContractValidationError(
                         "Generated verification code violates the v7 contract: "
                         "do not call .simplify() as an instance method; use "
-                        "sp.simplify(sp.sympify(a) - sp.sympify(b)) or same_expr(a, b)."
+                        "sp.simplify(sp.sympify(a) - sp.sympify(b)) or same_expr(a, b).",
+                        category="simplify_instance_method",
                     )
                 if (
                     node.func.attr == "dumps"
@@ -98,19 +106,21 @@ class SymPyCodeGenerator:
                     and node.func.value.id == "json"
                     and enclosing_function_name(node) not in {"emit_step", "emit_final"}
                 ):
-                    raise ValueError(
+                    raise CodegenContractValidationError(
                         "Generated verification code violates the v7 contract: "
                         "do not call json.dumps directly outside emit_step/emit_final; "
-                        "all JSON output must pass through the emit helpers."
+                        "all JSON output must pass through the emit helpers.",
+                        category="forbidden_json_dumps",
                     )
             if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
                 if node.func.id == "emit_final":
                     emit_final_calls += 1
 
         if emit_final_calls != 1:
-            raise ValueError(
+            raise CodegenContractValidationError(
                 "Generated verification code violates the v7 contract: "
-                "the code must contain exactly one emit_final(...) call."
+                "the code must contain exactly one emit_final(...) call.",
+                category="emit_final_count",
             )
 
     def generate(self, reasoning: ReasoningOutput) -> Tuple[str, Dict[str, Any]]:
@@ -146,7 +156,7 @@ class SymPyCodeGenerator:
             self.validate_code_contract(code)
         except SyntaxError as e:
             raise CodegenContractError(str(e), code, metadata, category="syntax") from e
-        except ValueError as e:
-            raise CodegenContractError(str(e), code, metadata, category="contract") from e
+        except CodegenContractValidationError as e:
+            raise CodegenContractError(str(e), code, metadata, category=e.category) from e
 
         return code, metadata
