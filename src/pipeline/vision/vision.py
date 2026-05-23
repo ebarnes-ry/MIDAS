@@ -36,12 +36,13 @@ class VisionPipeline:
             # Append recovered math text to full_page_text so the grouper can see it.
             ui_document.full_page_text = (ui_document.full_page_text + "\n\n" + recovered).strip()
 
-        # Step 4: Grouper identifies distinct problems from the full page text.
-        problems = self.grouper.group(ui_document.full_page_text)
+        # Step 4: Grouper identifies distinct problems from structured blocks.
+        problems = self.grouper.group_document(ui_document)
         
         # Step 4: Link the found problems back to the original blocks for UI highlighting
         #ui_document.problems = self._link_problems_to_blocks(problems, ui_document)
         problems_with_blocks = self._link_problems_to_blocks(problems, ui_document)
+        problems_with_blocks = self._repair_problem_assembly(problems_with_blocks, ui_document)
 
         # Step 5: Explicitly associate figure descriptions with the problems.
         ui_document.problems = self._associate_descriptions_to_problems(problems_with_blocks, ui_document)
@@ -84,6 +85,7 @@ class VisionPipeline:
             response = self.model_manager.call(
                 task="group_problems",   # reuses the same fast Groq text model
                 prompt_ref="vision/group_problems@v3",
+                variables={},
                 messages_override=[
                     {"role": "system", "content": "You are a maths OCR corrector. Extract and LaTeX-format any mathematical content from image descriptions."},
                     {"role": "user",   "content": prompt},
@@ -158,14 +160,98 @@ class VisionPipeline:
             else:
                 print(f"  NOT ASSIGNED (Best Ratio: {best_ratio:.2f} <= {threshold})")
 
-        # Second pass: Assign blocks to problems
+        valid_block_ids = {block.id for block in document.blocks}
+
+        # Second pass: Assign blocks to problems. Keep explicit block ids returned
+        # by block-aware grouping and use fuzzy matching to fill any gaps.
         for problem in problems:
-            problem.block_ids = [
+            existing_ids = [block_id for block_id in problem.block_ids if block_id in valid_block_ids]
+            matched_ids = [
                 block_id for block_id, (p_id, ratio) in block_assignments.items()
                 if p_id == problem.problem_id
             ]
+            problem.block_ids = list(dict.fromkeys(existing_ids + matched_ids))
         
         print("--- Block to Problem Linking Complete ---")
+        return problems
+
+    def _block_order(self, document: UIDocument) -> Dict[str, int]:
+        return {block.id: index for index, block in enumerate(document.blocks)}
+
+    def _block_text(self, block) -> str:
+        return (block.latex_content or "").strip()
+
+    def _is_math_like_block(self, block) -> bool:
+        block_type = block.block_type.lower()
+        text = self._block_text(block)
+        if not text:
+            return False
+        if block_type in {"equation", "inlinemath", "handwriting"}:
+            return True
+        math_markers = ("\\", "=", "^", "_", "+", "-", "\\int", "\\begin", "matrix")
+        return any(marker in text for marker in math_markers)
+
+    def _is_instruction_stem(self, text: str) -> bool:
+        normalized = self._normalize_text(text)
+        if not normalized:
+            return False
+        stem_markers = (
+            "solve the system",
+            "evaluate",
+            "find the derivative of",
+            "find the eigenvalues of",
+            "find the eigenvalue of",
+            "differentiate",
+            "integrate",
+        )
+        if not any(normalized.startswith(marker) for marker in stem_markers):
+            return False
+        return not any(marker in text for marker in ("\\", "=", "^", "_", "+", "-", "∫"))
+
+    def _repair_problem_assembly(self, problems: List[Problem], document: UIDocument) -> List[Problem]:
+        """
+        Conservatively repair common Marker splits where an instruction stem is
+        immediately followed by one or more math blocks. This only merges adjacent
+        math-like blocks and never crosses another text instruction.
+        """
+        if not problems or not document.blocks:
+            return problems
+
+        order = self._block_order(document)
+
+        for problem in problems:
+            if not self._is_instruction_stem(problem.problem_text):
+                continue
+
+            linked_indices = [
+                order[block_id]
+                for block_id in problem.block_ids
+                if block_id in order
+            ]
+            if not linked_indices:
+                continue
+
+            next_index = max(linked_indices) + 1
+            added_ids: List[str] = []
+            added_texts: List[str] = []
+
+            while next_index < len(document.blocks):
+                block = document.blocks[next_index]
+                if not self._is_math_like_block(block):
+                    break
+                added_ids.append(block.id)
+                added_texts.append(self._block_text(block))
+                next_index += 1
+
+            if not added_ids:
+                continue
+
+            problem.block_ids = list(dict.fromkeys(problem.block_ids + added_ids))
+            suffix = "\n".join(text for text in added_texts if text)
+            if suffix and suffix not in problem.problem_text:
+                problem.problem_text = f"{problem.problem_text.rstrip()}\n{suffix}"
+                problem.problem_type = self.grouper._classify_problem_type(problem.problem_text)
+
         return problems
 
     def _problem_appears_visual_dependent(self, problem: Problem) -> bool:

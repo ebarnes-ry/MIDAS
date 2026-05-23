@@ -73,19 +73,35 @@
 #             return []
 
 import json
-from typing import List, Dict, Tuple, Optional
-from pydantic import BaseModel, ConfigDict, Field
+from typing import List, Dict, Tuple, Optional, Any
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 from dataclasses import dataclass
 
 from src.models.manager import ModelManager
 from .types import UIDocument, UIBlock, Problem, ProblemType
 
-# Pydantic model for robust parsing of the new, simpler LLM response
-class ProblemSchema(BaseModel):
+# Pydantic models for robust parsing of LLM grouping responses. Hosted OpenAI
+# structured outputs require every property to be required, so text-only and
+# block-aware grouping use separate schemas.
+class TextProblemSchema(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     problem_text: str
     figure_references: List[str]
+
+
+class TextGroupingResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    problems: List[TextProblemSchema]
+
+
+class ProblemSchema(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    problem_text: str = Field(validation_alias=AliasChoices("problem_text", "combined_text"))
+    figure_references: List[str]
+    block_ids: List[str]
 
 class GroupingResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -132,6 +148,93 @@ class SemanticGrouper:
             return ProblemType.ALGEBRA
         return ProblemType.OTHER
 
+    def _block_content(self, block: UIBlock) -> str:
+        return (block.latex_content or block.image_description or "").strip()
+
+    def _block_contexts(self, document: UIDocument) -> List[Dict[str, Any]]:
+        contexts: List[Dict[str, Any]] = []
+        for order, block in enumerate(document.blocks):
+            content = self._block_content(block)
+            if not content:
+                continue
+
+            contexts.append(
+                {
+                    "order": order,
+                    "id": block.id,
+                    "block_type": block.block_type,
+                    "latex_content": block.latex_content,
+                    "image_description": block.image_description,
+                    "bbox": block.bbox,
+                    "is_editable": block.is_editable,
+                    "content": content,
+                }
+            )
+        return contexts
+
+    def _block_grouping_messages(self, block_contexts: List[Dict[str, Any]]) -> List[Dict[str, str]]:
+        blocks_json = json.dumps(block_contexts, indent=2)
+        system = (
+            "You are an expert document analysis agent. Group ordered OCR/layout "
+            "blocks into complete mathematical problems. A problem must include "
+            "the instruction text and every adjacent equation or math block needed "
+            "to solve it. Return only JSON matching this schema: "
+            '{"problems":[{"problem_text":"complete problem text",'
+            '"block_ids":["source_block_id"],"figure_references":[]}]}. '
+            "Use only block ids from the input. Do not include worked solutions or "
+            "answers when they are clearly separate from the question. Do not treat "
+            "OCR image descriptions of isolated numerals, letters, or equation "
+            "fragments as figure references."
+        )
+        user = (
+            "Group these ordered document blocks into self-contained math problems. "
+            "Preserve the readable math/text in problem_text and include the exact "
+            "block_ids used for each problem.\n\n"
+            f"BLOCKS:\n{blocks_json}"
+        )
+        return [{"role": "system", "content": system}, {"role": "user", "content": user}]
+
+    def group_document(self, document: UIDocument) -> List[Problem]:
+        print("--- Starting block-aware semantic grouping ---")
+        block_contexts = self._block_contexts(document)
+        if not block_contexts:
+            return self.group(document.full_page_text)
+
+        try:
+            prompt_ref = self._task_prompt_ref("group_problems", "vision/group_problems@v3")
+            response = self.model_manager.call(
+                task="group_problems",
+                prompt_ref=prompt_ref,
+                variables={
+                    "full_page_text": document.full_page_text,
+                    "blocks": block_contexts,
+                },
+                messages_override=self._block_grouping_messages(block_contexts),
+                schema=GroupingResponse
+            )
+
+            if response.parsed and isinstance(response.parsed, GroupingResponse):
+                valid_ids = {block.id for block in document.blocks}
+                problems = []
+                for i, p in enumerate(response.parsed.problems):
+                    block_ids = [block_id for block_id in p.block_ids if block_id in valid_ids]
+                    prob = Problem(
+                        problem_id=f"problem_{i+1}",
+                        problem_text=p.problem_text,
+                        figure_references=p.figure_references,
+                        block_ids=block_ids,
+                    )
+                    prob.problem_type = self._classify_problem_type(p.problem_text)
+                    problems.append(prob)
+                print(f"Block-aware grouping successful. Found {len(problems)} problems.")
+                return problems
+
+            print(f"Block-aware grouping failed to parse. Raw response: {response.content}")
+        except Exception as e:
+            print(f"An exception occurred during block-aware grouping: {e}")
+
+        return self.group(document.full_page_text)
+
     def group(self, full_page_text: str) -> List[Problem]:
         print("--- Starting semantic grouping of full page text ---")
         if not full_page_text.strip():
@@ -143,10 +246,10 @@ class SemanticGrouper:
                 task="group_problems",
                 prompt_ref=prompt_ref,
                 variables={"full_page_text": full_page_text},
-                schema=GroupingResponse
+                schema=TextGroupingResponse
             )
 
-            if response.parsed and isinstance(response.parsed, GroupingResponse):
+            if response.parsed and isinstance(response.parsed, TextGroupingResponse):
                 print(f"Semantic grouping successful. Found {len(response.parsed.problems)} problems.")
                 problems = []
                 for i, p in enumerate(response.parsed.problems):

@@ -8,6 +8,7 @@ from src.pipeline.reasoning.types import ReasoningInput, ReasoningOutput, Reason
 from src.pipeline.verification.verification_orchestrator import VerificationOrchestrator
 from src.pipeline.verification.verification_types import StepVerification
 from src.pipeline.vision.grouper import SemanticGrouper
+from src.pipeline.vision.types import UIDocument, UIBlock
 
 
 class RecordingManager:
@@ -194,6 +195,80 @@ def test_semantic_grouper_uses_configured_prompt_ref():
 
     assert manager.calls[0]["prompt_ref"] == "vision/group_problems@custom"
     assert problems[0].problem_text == "Solve x + 1 = 2"
+
+
+def test_semantic_grouper_can_group_structured_blocks_with_block_ids():
+    class BlockAwareManager(RecordingManager):
+        def call(self, **kwargs):
+            self.calls.append(kwargs)
+            schema = kwargs["schema"]
+            return SimpleNamespace(
+                parsed=schema(
+                    problems=[
+                        {
+                            "problem_text": "Solve the system:\nx + y = 3\nx - y = 1",
+                            "block_ids": ["stem", "eq1", "eq2"],
+                            "figure_references": [],
+                        }
+                    ]
+                ),
+                content="{}",
+                meta={"model": "test-model"},
+            )
+
+    manager = BlockAwareManager(
+        {"tasks": {"group_problems": {"prompt_ref": "vision/group_problems@custom"}}},
+        SimpleNamespace(content="", meta={}),
+    )
+    document = UIDocument(
+        blocks=[
+            UIBlock(
+                id="stem",
+                block_type="SectionHeader",
+                html="",
+                polygon=[],
+                bbox=[0, 0, 100, 20],
+                children=[],
+                section_hierarchy={},
+                latex_content="Solve the system:",
+                is_editable=True,
+            ),
+            UIBlock(
+                id="eq1",
+                block_type="Equation",
+                html="",
+                polygon=[],
+                bbox=[0, 25, 100, 45],
+                children=[],
+                section_hierarchy={},
+                latex_content="x + y = 3",
+                is_editable=True,
+            ),
+            UIBlock(
+                id="eq2",
+                block_type="Equation",
+                html="",
+                polygon=[],
+                bbox=[0, 50, 100, 70],
+                children=[],
+                section_hierarchy={},
+                latex_content="x - y = 1",
+                is_editable=True,
+            ),
+        ],
+        full_page_text="Solve the system:\n\nx + y = 3\n\nx - y = 1",
+        images={},
+        metadata={},
+        dimensions=(100, 100),
+    )
+
+    problems = SemanticGrouper(manager).group_document(document)
+
+    assert manager.calls[0]["prompt_ref"] == "vision/group_problems@custom"
+    assert manager.calls[0]["messages_override"]
+    assert manager.calls[0]["variables"]["blocks"][0]["id"] == "stem"
+    assert problems[0].block_ids == ["stem", "eq1", "eq2"]
+    assert "x - y = 1" in problems[0].problem_text
 
 
 def test_reasoning_repair_uses_existing_structured_parser():

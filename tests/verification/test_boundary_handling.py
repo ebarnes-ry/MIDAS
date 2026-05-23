@@ -8,6 +8,7 @@ from src.pipeline.verification.verification import VerificationPipeline
 from src.pipeline.vision.types import Problem, ProblemType, UIDocument, UIBlock, UserSelection
 from src.pipeline.vision.vision import VisionPipeline
 from src.api.routers.vision import convert_ui_document_to_api_document
+from src.pipeline.vision.grouper import SemanticGrouper
 
 
 def _manager():
@@ -163,6 +164,122 @@ def test_visual_selection_metadata_records_attached_description_without_explicit
     assert output.source_metadata["visual_context_required"] is True
     assert output.source_metadata["visual_context_attached"] is True
     assert output.source_metadata["visual_context_description_count"] == 1
+
+
+def test_instruction_stem_is_merged_with_immediately_following_equations():
+    pipeline = VisionPipeline.__new__(VisionPipeline)
+    pipeline.grouper = SemanticGrouper.__new__(SemanticGrouper)
+    problem = Problem(
+        problem_id="problem_1",
+        problem_text="Solve the system:",
+        block_ids=["stem"],
+        problem_type=ProblemType.ALGEBRA,
+    )
+    document = UIDocument(
+        blocks=[
+            UIBlock(
+                id="stem",
+                block_type="SectionHeader",
+                html="",
+                polygon=[0, 0, 10, 0, 10, 10, 0, 10],
+                bbox=[0, 0, 10, 10],
+                children=[],
+                section_hierarchy={},
+                latex_content="Solve the system:",
+                is_editable=True,
+            ),
+            UIBlock(
+                id="eq_1",
+                block_type="Equation",
+                html="",
+                polygon=[0, 11, 10, 11, 10, 20, 0, 20],
+                bbox=[0, 11, 10, 20],
+                children=[],
+                section_hierarchy={},
+                latex_content="x + y = 3",
+                is_editable=True,
+            ),
+            UIBlock(
+                id="eq_2",
+                block_type="Equation",
+                html="",
+                polygon=[0, 21, 10, 21, 10, 30, 0, 30],
+                bbox=[0, 21, 10, 30],
+                children=[],
+                section_hierarchy={},
+                latex_content="x - y = 1",
+                is_editable=True,
+            ),
+        ],
+        full_page_text="Solve the system:\n\nx + y = 3\n\nx - y = 1",
+        images={},
+        metadata={},
+        dimensions=(10, 30),
+        problems=[problem],
+    )
+
+    repaired = pipeline._repair_problem_assembly([problem], document)
+
+    assert repaired[0].block_ids == ["stem", "eq_1", "eq_2"]
+    assert repaired[0].problem_text == "Solve the system:\nx + y = 3\nx - y = 1"
+
+
+def test_instruction_stem_merge_stops_before_non_math_block():
+    pipeline = VisionPipeline.__new__(VisionPipeline)
+    pipeline.grouper = SemanticGrouper.__new__(SemanticGrouper)
+    problem = Problem(
+        problem_id="problem_1",
+        problem_text="Evaluate",
+        block_ids=["stem"],
+        problem_type=ProblemType.CALCULUS,
+    )
+    document = UIDocument(
+        blocks=[
+            UIBlock(
+                id="stem",
+                block_type="Text",
+                html="",
+                polygon=[],
+                bbox=[0, 0, 10, 10],
+                children=[],
+                section_hierarchy={},
+                latex_content="Evaluate",
+                is_editable=True,
+            ),
+            UIBlock(
+                id="note",
+                block_type="Text",
+                html="",
+                polygon=[],
+                bbox=[0, 11, 10, 20],
+                children=[],
+                section_hierarchy={},
+                latex_content="Use exact values.",
+                is_editable=True,
+            ),
+            UIBlock(
+                id="eq_1",
+                block_type="Equation",
+                html="",
+                polygon=[],
+                bbox=[0, 21, 10, 30],
+                children=[],
+                section_hierarchy={},
+                latex_content=r"\int_0^1 x\,dx",
+                is_editable=True,
+            ),
+        ],
+        full_page_text=r"Evaluate Use exact values. \int_0^1 x\,dx",
+        images={},
+        metadata={},
+        dimensions=(10, 30),
+        problems=[problem],
+    )
+
+    repaired = pipeline._repair_problem_assembly([problem], document)
+
+    assert repaired[0].block_ids == ["stem"]
+    assert repaired[0].problem_text == "Evaluate"
 
 
 def test_equation_fragment_descriptions_are_not_attached_as_visual_context():
