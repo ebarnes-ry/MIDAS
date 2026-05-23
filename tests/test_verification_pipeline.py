@@ -478,6 +478,41 @@ except ValueError as e:
         assert "3" in result.stdout  # len result
         assert "Caught: test" in result.stdout  # exception handling
 
+    def test_safe_namespace_allows_narrow_type_checks(self):
+        executor = SafeExecutor()
+        test_code = '''
+import json
+value = 3
+items = [1, 2, 3]
+print(json.dumps({
+    "is_int": isinstance(value, int),
+    "is_list": isinstance(items, list),
+    "exact_type": type(value) is int,
+}))
+'''
+
+        result = executor.execute(test_code)
+
+        assert result.success is True
+        payload = json.loads(result.stdout.strip())
+        assert payload == {"is_int": True, "is_list": True, "exact_type": True}
+
+    @pytest.mark.parametrize(
+        "blocked_builtin",
+        ["getattr", "setattr", "hasattr", "globals", "locals", "eval", "open"],
+    )
+    def test_safe_namespace_keeps_broad_introspection_blocked(self, blocked_builtin):
+        executor = SafeExecutor()
+        test_code = f'''
+print({blocked_builtin})
+'''
+
+        result = executor.execute(test_code)
+
+        assert result.success is False
+        assert result.exception_type == "NameError"
+        assert blocked_builtin in result.exception_message
+
 
 class TestVerificationOutputParser:
     """Test the output parsing component."""

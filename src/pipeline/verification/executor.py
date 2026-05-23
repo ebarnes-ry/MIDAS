@@ -56,6 +56,7 @@ class SafeExecutor:
             # Data types
             'str': str, 'int': int, 'float': float, 'bool': bool, 'list': list, 
             'dict': dict, 'tuple': tuple, 'set': set, 'complex': complex,
+            'isinstance': isinstance, 'type': type,
             
             # Math and Data Manipulation
             'print': print, 'len': len, 'abs': abs, 'max': max, 'min': min,
