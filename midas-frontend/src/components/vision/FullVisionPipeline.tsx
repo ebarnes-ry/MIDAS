@@ -13,6 +13,8 @@ export const FullVisionPipeline: React.FC = () => {
     uploadedFile,
     selectedProblemId,
     editedLatex,
+    editedVisualContext,
+    removeVisualContext,
     isLoading,
     error,
     processingStage,
@@ -78,10 +80,15 @@ export const FullVisionPipeline: React.FC = () => {
         originalImageBase64={originalImageBase64}
         selectedProblemId={selectedProblemId}
         editedLatex={editedLatex}
+        editedVisualContext={editedVisualContext}
+        removeVisualContext={removeVisualContext}
         isLoading={isLoading}
         error={error}
         onSelectProblem={actions.selectProblem}
         onUpdateLatex={actions.updateEditedLatex}
+        onUpdateVisualContext={actions.updateEditedVisualContext}
+        onRemoveVisualContext={actions.removeSelectedVisualContext}
+        onRestoreVisualContext={actions.restoreSelectedVisualContext}
         onRunPipeline={actions.runCompletePipeline}
         onBack={actions.startOver}
       />

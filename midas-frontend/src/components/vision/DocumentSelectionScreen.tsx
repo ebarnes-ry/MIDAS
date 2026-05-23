@@ -7,10 +7,15 @@ interface Props {
   originalImageBase64: string | null;
   selectedProblemId: string | null;
   editedLatex: string;
+  editedVisualContext: string;
+  removeVisualContext: boolean;
   isLoading: boolean;
   error: string | null;
   onSelectProblem: (id: string | null) => void;
   onUpdateLatex: (latex: string) => void;
+  onUpdateVisualContext: (visualContext: string) => void;
+  onRemoveVisualContext: () => void;
+  onRestoreVisualContext: () => void;
   onRunPipeline: () => void;
   onBack: () => void;
 }
@@ -121,16 +126,99 @@ const EditableLatex: React.FC<{
   );
 };
 
+const EditableVisualContext: React.FC<{
+  value: string;
+  original: string;
+  removed: boolean;
+  required: boolean;
+  onChange: (v: string) => void;
+  onRemove: () => void;
+  onRestore: () => void;
+}> = ({ value, original, removed, required, onChange, onRemove, onRestore }) => {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(value);
+
+  useEffect(() => { setDraft(value); }, [value]);
+
+  const confirm = () => { onChange(draft); setEditing(false); };
+  const discard = () => { setDraft(value); setEditing(false); };
+  const hasContext = !removed && value.trim().length > 0;
+
+  return (
+    <div style={{ marginTop: 14, border: `1.5px solid ${hasContext ? 'var(--amber-bd)' : required ? 'var(--failed-bd)' : 'var(--rule)'}`, borderRadius: 7, background: hasContext ? 'var(--amber-bg)' : 'var(--parchment)', overflow: 'hidden' }}>
+      <div style={{ padding: '9px 12px', borderBottom: '1px solid var(--rule-lt)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
+        <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 9.5, letterSpacing: '0.1em', textTransform: 'uppercase', color: hasContext ? 'var(--amber)' : required ? 'var(--failed)' : 'var(--ink-3)' }}>
+          Visual context {hasContext ? 'attached' : required ? 'needed' : 'optional'}
+        </div>
+        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+          {original && (
+            <button onClick={onRestore} style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 9.5, border: '1px solid var(--rule)', background: 'transparent', color: 'var(--ink-3)', borderRadius: 3, padding: '2px 7px', cursor: 'pointer' }}>
+              restore
+            </button>
+          )}
+          {hasContext && (
+            <button onClick={onRemove} style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 9.5, border: '1px solid var(--failed-bd)', background: 'var(--failed-bg)', color: 'var(--failed)', borderRadius: 3, padding: '2px 7px', cursor: 'pointer' }}>
+              remove
+            </button>
+          )}
+        </div>
+      </div>
+
+      <div style={{ padding: '10px 12px' }}>
+        {editing ? (
+          <>
+            <textarea
+              autoFocus
+              className="latex-editor"
+              value={draft}
+              onChange={e => setDraft(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Escape') discard();
+                if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) confirm();
+              }}
+              rows={Math.max(3, Math.ceil(Math.max(draft.length, 80) / 70))}
+              placeholder="Describe the diagram, graph, or table needed to solve this problem."
+            />
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8 }}>
+              <button onClick={confirm} title="Confirm" style={{ width: 28, height: 28, borderRadius: '50%', border: '1.5px solid var(--verified-bd)', background: 'var(--verified-bg)', color: 'var(--verified)', cursor: 'pointer', fontSize: 14, fontWeight: 700 }}>✓</button>
+              <button onClick={discard} title="Discard" style={{ width: 28, height: 28, borderRadius: '50%', border: '1.5px solid var(--rule)', background: 'var(--parchment)', color: 'var(--ink-3)', cursor: 'pointer', fontSize: 14 }}>✗</button>
+              <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 9.5, color: 'var(--rule)' }}>⌘Enter to confirm · Esc to discard</span>
+            </div>
+          </>
+        ) : (
+          <>
+            <div
+              onDoubleClick={() => { setDraft(value); setEditing(true); }}
+              title="Double-click to edit visual context"
+              style={{ minHeight: 42, cursor: 'text', color: hasContext ? 'var(--ink-2)' : 'var(--ink-3)', fontFamily: "'Crimson Pro', serif", fontSize: 14.5, lineHeight: 1.55, fontStyle: hasContext ? 'normal' : 'italic', whiteSpace: 'pre-wrap' }}
+            >
+              {hasContext ? value : removed ? 'Visual context removed. It will not be sent to the reasoning model.' : required ? 'No visual context is attached. Double-click to add a diagram/table/graph description.' : 'No associated visual context.'}
+            </div>
+            <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 9.5, color: 'var(--rule)', marginTop: 7 }}>
+              double-click to edit
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+};
+
 // ── Main selection screen ─────────────────────────────────────────────────────
 export const DocumentSelectionScreen: React.FC<Props> = ({
   document,
   originalImageBase64,
   selectedProblemId,
   editedLatex,
+  editedVisualContext,
+  removeVisualContext,
   isLoading,
   error,
   onSelectProblem,
   onUpdateLatex,
+  onUpdateVisualContext,
+  onRemoveVisualContext,
+  onRestoreVisualContext,
   onRunPipeline,
   onBack,
 }) => {
@@ -241,6 +329,15 @@ export const DocumentSelectionScreen: React.FC<Props> = ({
                               original={problem.problem_text}
                               onChange={onUpdateLatex}
                               onRevert={handleRevert}
+                            />
+                            <EditableVisualContext
+                              value={editedVisualContext}
+                              original={problem.visual_context_summary || ''}
+                              removed={removeVisualContext}
+                              required={Boolean(problem.visual_context_required)}
+                              onChange={onUpdateVisualContext}
+                              onRemove={onRemoveVisualContext}
+                              onRestore={onRestoreVisualContext}
                             />
                           </>
                         ) : (

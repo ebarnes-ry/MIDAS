@@ -133,7 +133,17 @@ def convert_ui_document_to_api_document(ui_document: UIDocument, original_image:
         APIProblem(
             problem_id=p.problem_id,
             problem_text=p.problem_text,
-            block_ids=p.block_ids
+            block_ids=p.block_ids,
+            problem_type=p.problem_type.value,
+            figure_references=p.figure_references,
+            visual_context_required=(
+                p.problem_type.value == "geometry"
+                or bool(p.figure_references)
+                or any(marker in p.problem_text.lower() for marker in ("figure", "diagram", "graph", "table", "chart", "shown", "below", "above", "image", "picture"))
+            ),
+            visual_context_attached=bool(p.referenced_figure_descriptions),
+            visual_context_summary="\n\n".join(p.referenced_figure_descriptions) if p.referenced_figure_descriptions else None,
+            visual_context_description_count=len(p.referenced_figure_descriptions),
         ) for p in ui_document.problems
     ]
 
@@ -247,7 +257,13 @@ async def complete_pipeline(request: Request, body: UserSelectionRequest, sessio
         image_data = base64.b64decode(session.original_image_base64)
         source_image = Image.open(io.BytesIO(image_data))
         vision_pipeline = VisionPipeline(model_manager)
-        vision_output = vision_pipeline.process_selection(user_selection, session.ui_document, source_image)
+        vision_output = vision_pipeline.process_selection(
+            user_selection,
+            session.ui_document,
+            source_image,
+            visual_context_override=body.visual_context_override,
+            remove_visual_context=body.remove_visual_context,
+        )
         vision_time = time.time() - vision_start_time
         reasoning_start_time = time.time()
         reasoning_pipeline = ReasoningPipeline(model_manager)

@@ -13,7 +13,7 @@ from src.pipeline.reasoning.reasoning import ReasoningContractError
 from src.pipeline.reasoning.types import ReasoningOutput, ReasoningStep
 from src.pipeline.verification.verification_orchestrator import RepairAttempt
 from src.pipeline.verification.verification_types import VerificationResult
-from src.pipeline.vision.types import UIDocument, VisionFinalOutput
+from src.pipeline.vision.types import UIDocument, VisionFinalOutput, VisualContext
 
 
 def test_reasoning_contract_error_is_typed_non_500_response():
@@ -216,3 +216,95 @@ def test_complete_uses_repaired_reasoning_fields_when_repair_succeeds():
     assert payload["data"]["verification"]["final_answer"] == "1"
     assert payload["data"]["verification"]["repair_history"][0]["final_answer"] == "3"
     assert payload["data"]["verification"]["repair_history"][1]["final_answer"] == "1"
+
+
+def test_complete_passes_user_visual_context_override_to_reasoning():
+    app = create_app()
+    model_manager = Mock(spec=ModelManager)
+    model_manager.config = {}
+    app.dependency_overrides[get_model_manager] = lambda: model_manager
+
+    png = io.BytesIO()
+    Image.new("RGB", (2, 2), "white").save(png, format="PNG")
+    image_base64 = base64.b64encode(png.getvalue()).decode("ascii")
+    ui_document = UIDocument(
+        blocks=[],
+        full_page_text="Use the graph shown to find x.",
+        images={},
+        metadata={},
+        dimensions=(2, 2),
+        problems=[],
+    )
+    session = DocumentSession(
+        document_id="doc-1",
+        ui_document=ui_document,
+        original_image_base64=image_base64,
+        created_at=datetime.utcnow(),
+        last_accessed=datetime.utcnow(),
+        processing_metadata={},
+    )
+    session_manager = Mock()
+    session_manager.get_session.return_value = session
+    app.dependency_overrides[get_session_manager] = lambda: session_manager
+    client = TestClient(app)
+
+    reasoning_output = ReasoningOutput(
+        original_problem="Use the graph shown to find x.",
+        steps=[ReasoningStep(1, "x = 2", "Read from graph.", "x = 2")],
+        final_answer="2",
+        think_reasoning="",
+        processing_metadata={},
+    )
+    verification_result = VerificationResult(
+        status="verified",
+        confidence_score=1.0,
+        reasoning_output=reasoning_output,
+        generated_code="",
+        answer_match=True,
+        errors=[],
+        metadata={"final_verdict": {"final_answer_verified": True, "answer": "2", "note": ""}},
+    )
+
+    with (
+        patch("src.api.routers.vision.VisionPipeline.process_selection") as process_selection,
+        patch("src.api.routers.vision.ReasoningPipeline.process") as process_reasoning,
+        patch("src.api.routers.vision.VerificationOrchestrator") as orchestrator_class,
+    ):
+        process_selection.return_value = VisionFinalOutput(
+            problem_statement="Use the graph shown to find x.",
+            visual_context=VisualContext(
+                elements=[],
+                summary="Edited graph context.",
+                contains_essential_info=True,
+            ),
+            source_metadata={
+                "problem_type": "algebra",
+                "visual_context_required": True,
+                "visual_context_attached": True,
+                "visual_context_source": "user_override",
+            },
+        )
+        process_reasoning.return_value = reasoning_output
+        orchestrator = Mock()
+        orchestrator.verify_with_repair.return_value = (verification_result, [])
+        orchestrator_class.return_value = orchestrator
+
+        response = client.post(
+            "/api/v1/vision/complete",
+            json={
+                "document_id": "doc-1",
+                "problem_id": "problem-1",
+                "edited_latex": "Use the graph shown to find x.",
+                "visual_context_override": "Edited graph context.",
+                "remove_visual_context": False,
+            },
+        )
+
+    assert response.status_code == 200
+    process_selection.assert_called_once()
+    assert process_selection.call_args.kwargs["visual_context_override"] == "Edited graph context."
+    assert process_selection.call_args.kwargs["remove_visual_context"] is False
+    reasoning_input = process_reasoning.call_args.args[0]
+    assert reasoning_input.visual_context == "Edited graph context."
+    payload = response.json()
+    assert payload["data"]["vision"]["metadata"]["visual_context_source"] == "user_override"

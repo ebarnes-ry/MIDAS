@@ -21,6 +21,12 @@ export interface APIProblem {
   problem_id: string;
   problem_text: string; // <-- This is the new source of truth for the editor
   block_ids: string[];  // This is just for highlighting
+  problem_type?: string | null;
+  figure_references?: string[];
+  visual_context_required?: boolean;
+  visual_context_attached?: boolean;
+  visual_context_summary?: string | null;
+  visual_context_description_count?: number;
 }
 
 export interface APIDocument {
@@ -50,6 +56,8 @@ export interface UserSelectionRequest {
   document_id: string;
   problem_id: string; 
   edited_latex: string;
+  visual_context_override?: string | null;
+  remove_visual_context?: boolean;
 }
 
 export interface APIVisualElement {
@@ -170,6 +178,8 @@ export interface DocumentState {
   // selectedBlockIds is GONE. We now track the selected problem.
   selectedProblemId: string | null;
   editedLatex: string;
+  editedVisualContext: string;
+  removeVisualContext: boolean;
   isLoading: boolean;
   error: string | null;
   processingStage: ProcessingStage;

@@ -162,3 +162,49 @@ def test_visual_selection_metadata_records_attached_description_without_explicit
     assert output.source_metadata["visual_context_required"] is True
     assert output.source_metadata["visual_context_attached"] is True
     assert output.source_metadata["visual_context_description_count"] == 1
+
+
+def test_visual_selection_accepts_user_override_and_removal():
+    pipeline = VisionPipeline.__new__(VisionPipeline)
+    problem = Problem(
+        problem_id="problem_1",
+        problem_text="Use the graph shown to find the intercept.",
+        problem_type=ProblemType.ALGEBRA,
+        figure_references=["graph"],
+        referenced_figure_descriptions=["Original graph description."],
+    )
+    document = UIDocument(
+        blocks=[],
+        full_page_text=problem.problem_text,
+        images={},
+        metadata={},
+        dimensions=(10, 10),
+        problems=[problem],
+    )
+    selection = UserSelection(
+        problem_id="problem_1",
+        edited_latex=problem.problem_text,
+        original_image_path="",
+    )
+
+    overridden = pipeline.process_selection(
+        selection,
+        document,
+        Image.new("RGB", (10, 10), "white"),
+        visual_context_override="Edited graph description.",
+    )
+    removed = pipeline.process_selection(
+        selection,
+        document,
+        Image.new("RGB", (10, 10), "white"),
+        remove_visual_context=True,
+    )
+
+    assert overridden.visual_context is not None
+    assert overridden.visual_context.summary == "Edited graph description."
+    assert overridden.source_metadata["visual_context_source"] == "user_override"
+    assert overridden.source_metadata["visual_context_user_modified"] is True
+    assert removed.visual_context is None
+    assert removed.source_metadata["visual_context_attached"] is False
+    assert removed.source_metadata["visual_context_source"] == "user_removed"
+    assert removed.source_metadata["visual_context_missing_reason"] == "user_removed"

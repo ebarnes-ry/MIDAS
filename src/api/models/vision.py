@@ -16,6 +16,8 @@ class UserSelectionRequest(BaseModel):
     document_id: str = Field(..., description="Document session ID")
     problem_id: str = Field(..., description="ID of the selected problem group")
     edited_latex: str = Field(..., description="User's edited LaTeX content")
+    visual_context_override: Optional[str] = Field(None, description="User-edited visual context summary to attach to the selected problem")
+    remove_visual_context: bool = Field(False, description="Whether to intentionally omit attached visual context")
     
     @validator('edited_latex')
     def validate_latex(cls, v):
@@ -64,6 +66,12 @@ class APIProblem(BaseModel):
     problem_id: str
     problem_text: str
     block_ids: List[str]
+    problem_type: Optional[str] = None
+    figure_references: List[str] = Field(default_factory=list)
+    visual_context_required: bool = False
+    visual_context_attached: bool = False
+    visual_context_summary: Optional[str] = None
+    visual_context_description_count: int = 0
 
 class APIDocument(BaseModel):
     blocks: List[APIBlock]

@@ -11,6 +11,8 @@ const initialState: DocumentState = {
   originalImageBase64: null,
   selectedProblemId: null,
   editedLatex: '',
+  editedVisualContext: '',
+  removeVisualContext: false,
   isLoading: false,
   error: null,
   processingStage: 'idle',
@@ -89,6 +91,8 @@ export const useDocumentState = () => {
         document_id: state.documentId,
         problem_id: state.selectedProblemId,
         edited_latex: state.editedLatex.trim(),
+        visual_context_override: state.editedVisualContext.trim() || null,
+        remove_visual_context: state.removeVisualContext,
       });
 
       if (response.success) {
@@ -106,7 +110,7 @@ export const useDocumentState = () => {
       const failedResponse: CompletePipelineResponse = { success: false, message: errorMsg, timestamp: new Date().toISOString(), data: null };
       setState(prev => ({ ...prev, completePipelineResult: failedResponse, error: errorMsg, processingStage: 'complete', isLoading: false }));
     }
-  }, [state.documentId, state.selectedProblemId, state.editedLatex]);
+  }, [state.documentId, state.selectedProblemId, state.editedLatex, state.editedVisualContext, state.removeVisualContext]);
 
   const selectProblem = useCallback((problemId: string | null) => {
     setState(prev => {
@@ -119,16 +123,37 @@ export const useDocumentState = () => {
         ...prev,
         selectedProblemId: problemId,
         editedLatex: selectedProblem ? selectedProblem.problem_text : '',
+        editedVisualContext: selectedProblem?.visual_context_summary || '',
+        removeVisualContext: false,
       };
     });
   }, []);
 
   const clearSelection = useCallback(() => {
-    setState(prev => ({ ...prev, selectedProblemId: null, editedLatex: '' }));
+    setState(prev => ({ ...prev, selectedProblemId: null, editedLatex: '', editedVisualContext: '', removeVisualContext: false }));
   }, []);
 
   const updateEditedLatex = useCallback((latex: string) => {
     setState(prev => ({ ...prev, editedLatex: latex }));
+  }, []);
+
+  const updateEditedVisualContext = useCallback((visualContext: string) => {
+    setState(prev => ({ ...prev, editedVisualContext: visualContext, removeVisualContext: false }));
+  }, []);
+
+  const removeSelectedVisualContext = useCallback(() => {
+    setState(prev => ({ ...prev, editedVisualContext: '', removeVisualContext: true }));
+  }, []);
+
+  const restoreSelectedVisualContext = useCallback(() => {
+    setState(prev => {
+      const selectedProblem = prev.document?.problems.find(p => p.problem_id === prev.selectedProblemId);
+      return {
+        ...prev,
+        editedVisualContext: selectedProblem?.visual_context_summary || '',
+        removeVisualContext: false,
+      };
+    });
   }, []);
 
   const startOver = useCallback(() => {
@@ -160,6 +185,9 @@ export const useDocumentState = () => {
       selectProblem,
       clearSelection,
       updateEditedLatex,
+      updateEditedVisualContext,
+      removeSelectedVisualContext,
+      restoreSelectedVisualContext,
       startOver,
       cancelUpload: startOver, // Alias for clarity
     },

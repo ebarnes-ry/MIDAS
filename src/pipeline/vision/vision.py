@@ -210,7 +210,14 @@ class VisionPipeline:
         
         return problems
 
-    def process_selection(self, user_selection: UserSelection, ui_document: UIDocument, source_image: Image.Image) -> VisionFinalOutput:
+    def process_selection(
+        self,
+        user_selection: UserSelection,
+        ui_document: UIDocument,
+        source_image: Image.Image,
+        visual_context_override: Optional[str] = None,
+        remove_visual_context: bool = False,
+    ) -> VisionFinalOutput:
         # Find the full problem object based on the user's selection ID.
         selected_problem = next((p for p in ui_document.problems if p.problem_id == user_selection.problem_id), None)
         if not selected_problem:
@@ -236,8 +243,21 @@ class VisionPipeline:
         #visual_context = None 
         # visual_context = self.visual_contextualizer.analyze(...) # You can still run this if you need more than text
 
-        if selected_problem.referenced_figure_descriptions:
-            descriptions_text = "\n\n".join(selected_problem.referenced_figure_descriptions)
+        original_descriptions_text = "\n\n".join(selected_problem.referenced_figure_descriptions)
+        descriptions_text = (visual_context_override if visual_context_override is not None else original_descriptions_text).strip()
+        visual_context_source = (
+            "user_override"
+            if visual_context_override is not None and descriptions_text
+            else "referenced_figure_descriptions"
+            if original_descriptions_text
+            else None
+        )
+
+        if remove_visual_context:
+            descriptions_text = ""
+            visual_context_source = "user_removed"
+
+        if descriptions_text:
 
             # Don't embed in problem statement
             final_problem_statement = user_selection.edited_latex
@@ -264,8 +284,17 @@ class VisionPipeline:
                 "total_problems_found": len(ui_document.problems),
                 "visual_context_required": visual_context_required,
                 "visual_context_attached": visual_context is not None,
-                "visual_context_description_count": len(selected_problem.referenced_figure_descriptions),
-                "visual_context_source": "referenced_figure_descriptions" if visual_context is not None else None,
+                "visual_context_description_count": 1 if visual_context is not None else 0,
+                "visual_context_source": visual_context_source,
+                "visual_context_user_modified": visual_context_override is not None,
+                "visual_context_user_removed": remove_visual_context,
+                "visual_context_missing_reason": (
+                    "user_removed"
+                    if remove_visual_context
+                    else "no_associated_description"
+                    if visual_context_required and visual_context is None
+                    else None
+                ),
                 "vlm_analysis_performed": visual_context is not None,
                 "document_dimensions": ui_document.dimensions
             }
