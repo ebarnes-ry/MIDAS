@@ -48,7 +48,22 @@ export const useDocumentState = () => {
   // --- ACTIONS ---
   // These functions encapsulate the logic that was previously in FullVisionPipeline.
   const handleFileUpload = useCallback(async (file: File) => {
-    setState(prev => ({ ...prev, uploadedFile: file, processingStage: 'uploading', error: null }));
+    setState(prev => ({
+      ...prev,
+      document: null,
+      documentId: null,
+      originalImageBase64: null,
+      selectedProblemId: null,
+      editedLatex: '',
+      editedVisualContext: '',
+      removeVisualContext: false,
+      uploadedFile: file,
+      processingMetadata: null,
+      completePipelineResult: null,
+      processingStage: 'uploading',
+      isLoading: false,
+      error: null,
+    }));
     try {
       const reader = new FileReader();
       reader.onload = () => {
@@ -81,7 +96,12 @@ export const useDocumentState = () => {
           document: response.data.document,
           documentId: response.data.document_id,
           originalImageBase64: response.data.original_image_base64,
+          selectedProblemId: null,
+          editedLatex: '',
+          editedVisualContext: '',
+          removeVisualContext: false,
           processingMetadata: response.data.processing_metadata,
+          completePipelineResult: null,
           processingStage: 'complete',
           isLoading: false,
         }));
@@ -100,9 +120,16 @@ export const useDocumentState = () => {
   const loadExampleDocument = useCallback(async (exampleId: string) => {
     setState(prev => ({
       ...prev,
+      document: null,
+      documentId: null,
+      selectedProblemId: null,
+      editedLatex: '',
+      editedVisualContext: '',
+      removeVisualContext: false,
       uploadedFile: null,
       originalImageBase64: null,
       processingMetadata: null,
+      completePipelineResult: null,
       processingStage: 'processing',
       isLoading: true,
       error: null,
@@ -116,7 +143,12 @@ export const useDocumentState = () => {
           document: response.data.document,
           documentId: response.data.document_id,
           originalImageBase64: response.data.original_image_base64,
+          selectedProblemId: null,
+          editedLatex: '',
+          editedVisualContext: '',
+          removeVisualContext: false,
           processingMetadata: response.data.processing_metadata,
+          completePipelineResult: null,
           processingStage: 'complete',
           isLoading: false,
         }));

@@ -6,6 +6,7 @@ allowing the frontend to reference documents by ID for selections and edits.
 """
 
 import uuid
+import os
 from typing import Dict, Optional
 from datetime import datetime, timedelta
 import threading
@@ -33,10 +34,15 @@ class SessionManager:
     but in-memory is fine for development and small-scale deployment.
     """
     
-    def __init__(self, session_timeout_minutes: int = 60):
+    def __init__(
+        self,
+        session_timeout_minutes: int = 60,
+        max_sessions: Optional[int] = None,
+    ):
         self._sessions: Dict[str, DocumentSession] = {}
         self._lock = threading.Lock()
         self.session_timeout = timedelta(minutes=session_timeout_minutes)
+        self.max_sessions = max_sessions
     
     def create_session(
         self, 
@@ -61,6 +67,7 @@ class SessionManager:
             # Clean up expired sessions before adding new one
             self._cleanup_expired_sessions()
             self._sessions[document_id] = session
+            self._enforce_max_sessions()
         
         return document_id
     
@@ -97,12 +104,30 @@ class SessionManager:
         
         if expired_ids:
             print(f"🧹 Cleaned up {len(expired_ids)} expired document sessions")
+
+    def _enforce_max_sessions(self):
+        if not self.max_sessions or self.max_sessions <= 0:
+            return
+
+        overflow = len(self._sessions) - self.max_sessions
+        if overflow <= 0:
+            return
+
+        oldest_ids = sorted(
+            self._sessions,
+            key=lambda doc_id: self._sessions[doc_id].last_accessed,
+        )[:overflow]
+        for doc_id in oldest_ids:
+            del self._sessions[doc_id]
+
+        print(f"Cleaned up {len(oldest_ids)} old document sessions")
     
     def get_stats(self) -> Dict[str, any]:
         """Get session manager statistics."""
         with self._lock:
             return {
                 "active_sessions": len(self._sessions),
+                "max_sessions": self.max_sessions,
                 "timeout_minutes": self.session_timeout.total_seconds() / 60,
                 "oldest_session_age": (
                     min(
@@ -112,8 +137,22 @@ class SessionManager:
                 )
             }
 
+def _optional_positive_int(name: str) -> Optional[int]:
+    raw = os.getenv(name)
+    if not raw:
+        return None
+    try:
+        value = int(raw)
+    except ValueError:
+        return None
+    return value if value > 0 else None
+
+
 # Global session manager instance
-session_manager = SessionManager()
+session_manager = SessionManager(
+    session_timeout_minutes=int(os.getenv("MIDAS_SESSION_TIMEOUT_MINUTES", "60")),
+    max_sessions=_optional_positive_int("MIDAS_MAX_SESSIONS") or 20,
+)
 
 # FastAPI dependency functions
 def get_session_manager() -> SessionManager:

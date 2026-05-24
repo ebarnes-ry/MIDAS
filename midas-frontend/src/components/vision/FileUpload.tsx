@@ -43,7 +43,7 @@ const EXAMPLE_INPUTS = [
 
 interface FileUploadProps {
   onFileSelect: (file: File) => void;
-  onExampleSelect?: (exampleId: string) => void;
+  onExampleSelect?: (exampleId: string) => void | Promise<void>;
   isLoading?: boolean;
   error?: string | null;
   quota?: QuotaStatus | null;
@@ -72,7 +72,7 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onFileSelect, onExampleS
     setExampleError(null);
 
     try {
-      onExampleSelect(example.id);
+      await onExampleSelect(example.id);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Example image could not be loaded.';
       setExampleError(message);

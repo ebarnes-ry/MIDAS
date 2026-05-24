@@ -5,6 +5,7 @@ from src.pipeline.vision.preloaded_examples import (
     serialize_ui_document,
     deserialize_ui_document,
 )
+from src.api.routers.vision import convert_ui_document_to_api_document
 
 
 EXPECTED_PROBLEM_TEXT = {
@@ -57,3 +58,18 @@ def test_preloaded_document_serialization_round_trips():
     assert len(round_tripped.problems) == len(document.problems)
     assert round_tripped.problems[0].problem_text == document.problems[0].problem_text
     assert round_tripped.problems[0].problem_type == document.problems[0].problem_type
+
+
+def test_cached_examples_skip_cropped_block_payloads():
+    class FakeImage:
+        pass
+
+    payload = load_preloaded_example("definite-integral")
+    api_document = convert_ui_document_to_api_document(
+        payload["ui_document"],
+        FakeImage(),
+        include_cropped_images=False,
+    )
+
+    assert api_document.problems[0].problem_text == EXPECTED_PROBLEM_TEXT["definite-integral"]
+    assert all(block.cropped_image is None for block in api_document.blocks)

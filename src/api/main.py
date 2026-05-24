@@ -39,25 +39,29 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     app_state["model_manager"] = model_manager
     print("2. ModelManager initialized successfully")
 
-    # Pre-warm Marker so OCR models load at startup, not on the first user request.
-    # Without this, the first upload times out while PyTorch/surya downloads weights.
-    print("3. Pre-warming Marker OCR models...")
-    try:
-        import io, tempfile, os
-        from PIL import Image as PILImage
-        warmup_img = PILImage.new("RGB", (64, 64), color=(255, 255, 255))
-        with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f:
-            warmup_img.save(f, format="PNG")
-            warmup_path = f.name
+    if os.getenv("MIDAS_PREWARM_MARKER", "false").lower() == "true":
+        # Optional because hosted demo users mostly use cached examples. Loading
+        # Marker/Surya/PyTorch at startup consumes memory even if no fresh upload
+        # is processed.
+        print("3. Pre-warming Marker OCR models...")
         try:
-            model_manager.marker.convert_document(warmup_path)
-        except Exception:
-            pass  # warmup may fail on tiny image — models are still loaded into memory
-        finally:
-            os.unlink(warmup_path)
-        print("3. Marker models ready")
-    except Exception as e:
-        print(f"3. Marker warmup skipped: {e}")
+            import tempfile
+            from PIL import Image as PILImage
+            warmup_img = PILImage.new("RGB", (64, 64), color=(255, 255, 255))
+            with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f:
+                warmup_img.save(f, format="PNG")
+                warmup_path = f.name
+            try:
+                model_manager.marker.convert_document(warmup_path)
+            except Exception:
+                pass
+            finally:
+                os.unlink(warmup_path)
+            print("3. Marker models ready")
+        except Exception as e:
+            print(f"3. Marker warmup skipped: {e}")
+    else:
+        print("3. Marker prewarm disabled")
 
     print("4. API server ready to accept requests")
     yield

@@ -133,10 +133,13 @@ def _extract_and_crop_image_region(
 def convert_ui_block_to_api_block(
     ui_block: UIBlock,
     original_image: Image.Image,
+    include_cropped_images: bool = True,
 ) -> APIBlock:
     cropped_b64 = None
 
     if (
+        include_cropped_images
+        and
         ui_block.block_type.lower() in {"figure", "picture", "table", "diagram"}
         and not ui_block.is_editable
     ):
@@ -159,9 +162,10 @@ def convert_ui_block_to_api_block(
 def convert_ui_document_to_api_document(
     ui_document: UIDocument,
     original_image: Image.Image,
+    include_cropped_images: bool = True,
 ) -> APIDocument:
     api_blocks = [
-        convert_ui_block_to_api_block(block, original_image)
+        convert_ui_block_to_api_block(block, original_image, include_cropped_images)
         for block in ui_document.blocks
     ]
 
@@ -225,10 +229,12 @@ def _build_document_upload_response(
     processing_metadata: dict,
     message: str,
     quota=None,
+    include_cropped_images: bool = True,
 ) -> DocumentUploadResponse:
     api_document = convert_ui_document_to_api_document(
         ui_document,
         original_image,
+        include_cropped_images=include_cropped_images,
     )
 
     response = DocumentUploadResponse(
@@ -322,6 +328,7 @@ async def load_cached_example(
         processing_time=0.0,
         processing_metadata=processing_metadata,
         message="Loaded precomputed example document",
+        include_cropped_images=False,
     )
 
 
