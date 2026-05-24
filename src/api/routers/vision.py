@@ -132,7 +132,7 @@ def _extract_and_crop_image_region(
 
 def convert_ui_block_to_api_block(
     ui_block: UIBlock,
-    original_image: Image.Image,
+    original_image: Optional[Image.Image],
     include_cropped_images: bool = True,
 ) -> APIBlock:
     cropped_b64 = None
@@ -161,7 +161,7 @@ def convert_ui_block_to_api_block(
 
 def convert_ui_document_to_api_document(
     ui_document: UIDocument,
-    original_image: Image.Image,
+    original_image: Optional[Image.Image],
     include_cropped_images: bool = True,
 ) -> APIDocument:
     api_blocks = [
@@ -224,7 +224,7 @@ def _build_document_upload_response(
     document_id: str,
     ui_document: UIDocument,
     original_image_base64: str,
-    original_image: Image.Image,
+    original_image: Optional[Image.Image],
     processing_time: float,
     processing_metadata: dict,
     message: str,
@@ -311,9 +311,6 @@ async def load_cached_example(
         }
     )
 
-    image_data = base64.b64decode(original_image_base64)
-    original_image = Image.open(io.BytesIO(image_data)).convert("RGB")
-
     document_id = session_manager.create_session(
         ui_document=ui_document,
         original_image_base64=original_image_base64,
@@ -324,7 +321,7 @@ async def load_cached_example(
         document_id=document_id,
         ui_document=ui_document,
         original_image_base64=original_image_base64,
-        original_image=original_image,
+        original_image=None,
         processing_time=0.0,
         processing_metadata=processing_metadata,
         message="Loaded precomputed example document",
@@ -470,14 +467,10 @@ async def complete_pipeline(
             original_image_path="",
         )
 
-        image_data = base64.b64decode(session.original_image_base64)
-        source_image = Image.open(io.BytesIO(image_data))
-
         vision_pipeline = VisionPipeline(model_manager)
         vision_output = vision_pipeline.process_selection(
             user_selection,
             session.ui_document,
-            source_image,
             visual_context_override=body.visual_context_override,
             remove_visual_context=body.remove_visual_context,
         )

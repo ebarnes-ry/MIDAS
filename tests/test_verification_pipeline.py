@@ -11,6 +11,7 @@ Tests the core verification functionality including:
 
 import pytest
 import json
+import sys
 from unittest.mock import Mock, patch, MagicMock
 from pathlib import Path
 from types import SimpleNamespace
@@ -512,6 +513,20 @@ print({blocked_builtin})
         assert result.success is False
         assert result.exception_type == "NameError"
         assert blocked_builtin in result.exception_message
+
+    @pytest.mark.skipif(sys.platform == "win32", reason="resource limits are POSIX-only")
+    def test_execute_does_not_lower_parent_memory_limit(self):
+        import resource
+
+        before = resource.getrlimit(resource.RLIMIT_AS)
+        executor = SafeExecutor(max_memory_mb=512)
+
+        result = executor.execute("print('ok')")
+
+        after = resource.getrlimit(resource.RLIMIT_AS)
+        assert result.success is True
+        assert result.stdout.strip() == "ok"
+        assert after == before
 
 
 class TestVerificationOutputParser:

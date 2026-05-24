@@ -39,8 +39,8 @@ router = APIRouter()
 @router.post("/reason", response_model=ReasoningResponse)
 @limiter.limit("2/minute")
 async def process_reasoning(
-    http_request: Request,
-    request: ReasoningRequest,
+    request: Request,
+    body: ReasoningRequest,
     quota=Depends(require_reason_quota),
     model_manager: ModelManager = Depends(get_model_manager),
 ):
@@ -51,14 +51,14 @@ async def process_reasoning(
     want people using this standalone debug endpoint.
     """
     start_time = time.time()
-    print(f"Starting reasoning processing for problem: {request.problem_statement[:100]}...")
+    print(f"Starting reasoning processing for problem: {body.problem_statement[:100]}...")
 
     try:
         reasoning_pipeline = ReasoningPipeline(model_manager)
         reasoning_input = ReasoningInput(
-            problem_statement=request.problem_statement,
-            visual_context=request.visual_context,
-            source_metadata=request.source_metadata,
+            problem_statement=body.problem_statement,
+            visual_context=body.visual_context,
+            source_metadata=body.source_metadata,
         )
 
         print("Processing reasoning with model...")
@@ -105,7 +105,7 @@ async def process_reasoning(
         print(f"Reasoning contract failure: {e.message}")
 
         response_data = ReasoningData(
-            original_problem=request.problem_statement,
+            original_problem=body.problem_statement,
             steps=[],
             worked_solution="",
             final_answer="",
@@ -145,8 +145,8 @@ async def process_reasoning(
 @router.post("/explain", response_model=ReasoningExplainResponse)
 @limiter.limit("10/minute")
 async def explain_step(
-    http_request: Request,
-    request: ReasoningExplainRequest,
+    request: Request,
+    body: ReasoningExplainRequest,
     quota=Depends(require_explain_quota),
     model_manager: ModelManager = Depends(get_model_manager),
 ):
@@ -160,9 +160,9 @@ async def explain_step(
             task="explain_step",
             prompt_ref="reasoning/explain_step@v1",
             variables={
-                "problem_statement": request.problem_statement,
-                "worked_solution": request.worked_solution,
-                "step_text": request.step_text,
+                "problem_statement": body.problem_statement,
+                "worked_solution": body.worked_solution,
+                "step_text": body.step_text,
             },
         )
 
@@ -187,8 +187,8 @@ async def explain_step(
 @router.post("/feedback", response_model=FeedbackResponse)
 @limiter.limit("10/minute")
 async def generate_step_feedback(
-    http_request: Request,
-    request: FeedbackRequest,
+    request: Request,
+    body: FeedbackRequest,
     quota=Depends(require_feedback_quota),
     model_manager: ModelManager = Depends(get_model_manager),
 ):
@@ -200,15 +200,15 @@ async def generate_step_feedback(
         generator = FeedbackGenerator(model_manager)
 
         step = ReasoningStep(
-            step_number=request.step_number,
-            claim=request.claim,
-            justification=request.justification,
-            latex_expression=request.latex_expression,
+            step_number=body.step_number,
+            claim=body.claim,
+            justification=body.justification,
+            latex_expression=body.latex_expression,
             verification_status=False,
-            verification_note=request.verification_note,
+            verification_note=body.verification_note,
         )
 
-        feedback = generator.generate_step_feedback(request.problem_statement, step)
+        feedback = generator.generate_step_feedback(body.problem_statement, step)
 
         return FeedbackResponse(
             success=True,

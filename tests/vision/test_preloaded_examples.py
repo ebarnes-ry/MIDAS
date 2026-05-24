@@ -5,6 +5,8 @@ from src.pipeline.vision.preloaded_examples import (
     serialize_ui_document,
     deserialize_ui_document,
 )
+from src.pipeline.vision.types import UserSelection
+from src.pipeline.vision.vision import VisionPipeline
 from src.api.routers.vision import convert_ui_document_to_api_document
 
 
@@ -61,15 +63,38 @@ def test_preloaded_document_serialization_round_trips():
 
 
 def test_cached_examples_skip_cropped_block_payloads():
-    class FakeImage:
-        pass
-
     payload = load_preloaded_example("definite-integral")
     api_document = convert_ui_document_to_api_document(
         payload["ui_document"],
-        FakeImage(),
+        None,
         include_cropped_images=False,
     )
 
     assert api_document.problems[0].problem_text == EXPECTED_PROBLEM_TEXT["definite-integral"]
     assert all(block.cropped_image is None for block in api_document.blocks)
+
+
+def test_cached_selection_does_not_load_marker():
+    class MarkerLoadingManager:
+        config = {}
+
+        @property
+        def marker(self):
+            raise AssertionError("Marker should not load while processing a cached selection")
+
+    payload = load_preloaded_example("product-rule")
+    document = payload["ui_document"]
+    problem = document.problems[0]
+    pipeline = VisionPipeline(MarkerLoadingManager())
+
+    output = pipeline.process_selection(
+        UserSelection(
+            problem_id=problem.problem_id,
+            edited_latex=problem.problem_text,
+            original_image_path="",
+        ),
+        document,
+    )
+
+    assert output.problem_statement == EXPECTED_PROBLEM_TEXT["product-rule"]
+    assert output.source_metadata["problem_id"] == problem.problem_id

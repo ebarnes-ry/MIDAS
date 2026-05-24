@@ -23,9 +23,15 @@ class ImageProblemRecovery(BaseModel):
 class VisionPipeline:
     def __init__(self, manager: ModelManager):
         self.model_manager = manager
-        self.marker_service = manager.marker #access marker service directly
+        self._marker_service = None
         #self.visual_contextualizer = VisualContextualizer(manager)
         self.grouper = SemanticGrouper(manager)
+
+    @property
+    def marker_service(self):
+        if self._marker_service is None:
+            self._marker_service = self.model_manager.marker
+        return self._marker_service
 
     #def process_input(self, vision_input: VisionInput) -> UIDocument:
     def process_input(self, vision_input: VisionInput) -> UIDocument:
@@ -707,7 +713,7 @@ class VisionPipeline:
         self,
         user_selection: UserSelection,
         ui_document: UIDocument,
-        source_image: Image.Image,
+        source_image: Optional[Image.Image] = None,
         visual_context_override: Optional[str] = None,
         remove_visual_context: bool = False,
     ) -> VisionFinalOutput:

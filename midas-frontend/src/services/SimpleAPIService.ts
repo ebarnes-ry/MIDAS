@@ -14,6 +14,7 @@ import {
 
 const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:8000';
 const DEFAULT_TIMEOUT = 900000; // 15 minutes
+const EXAMPLE_LOAD_TIMEOUT = 60000; // Cached examples should return quickly.
 
 const CLIENT_ID_KEY = 'midas_client_id';
 
@@ -101,7 +102,7 @@ export class SimpleAPIService {
   static async loadExampleDocument(exampleId: string): Promise<DocumentUploadResponse> {
     const response = await this._fetchWithTimeout(`${API_BASE}/api/v1/vision/examples/${exampleId}`, {
       method: 'POST',
-    });
+    }, EXAMPLE_LOAD_TIMEOUT);
 
     return response.json();
   }
