@@ -69,4 +69,17 @@
     line-height: 1.5;
   }
   .latex-editor:focus { border-color: var(--accent); }
+
+  .example-input-card {
+    transition: transform 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease, background 0.16s ease;
+  }
+
+  .example-input-card:hover:not(:disabled),
+  .example-input-card:focus-visible:not(:disabled) {
+    transform: scale(1.035);
+    border-color: var(--accent);
+    box-shadow: 0 8px 22px rgba(30, 58, 95, 0.14);
+    outline: none;
+    background: var(--cream);
+  }
 }
