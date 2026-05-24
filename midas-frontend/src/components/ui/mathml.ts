@@ -33,6 +33,19 @@ const PROSE_WORD_ALLOWLIST = new Set([
   'ln',
   'lim',
   'det',
+  'begin',
+  'end',
+  'matrix',
+  'bmatrix',
+  'pmatrix',
+  'vmatrix',
+  'smallmatrix',
+  'array',
+  'cases',
+  'aligned',
+  'align',
+  'gathered',
+  'split',
 ]);
 
 export const looksLikeStandaloneTeX = (s: string): boolean => {
@@ -119,7 +132,7 @@ const findMathSpanEnd = (text: string, start: number): number => {
       continue;
     }
 
-    if (/[{}()[\]^_=+\-*/|.,\s]/.test(ch)) {
+    if (/[{}()[\]^_=+\-*/|.,&\s]/.test(ch)) {
       i += 1;
       continue;
     }
@@ -151,8 +164,10 @@ export const autoDelimitEmbeddedTeX = (text: string): string => {
     const ch = protectedText[i];
     const startsCommand = ch === '\\' && /^\\[A-Za-z]+/.test(protectedText.slice(i));
     const previousIsWord = isWordChar(protectedText[i - 1]);
+    const nextIsWord = isWordChar(protectedText[i + 1]);
     const startsVariableExpression =
       !previousIsWord &&
+      !nextIsWord &&
       isWordChar(ch) &&
       isSingleLetterVariable(ch) &&
       hasNearbyMathSyntax(protectedText, i);

@@ -52,6 +52,19 @@ describe('mathml helpers', () => {
       .toBe(String.raw`Problem: The equation \(x^{2} + 2x = i\) has two complex solutions.`);
   });
 
+  it('wraps matrix environments without splitting environment names', () => {
+    const input = String.raw`Find the eigenvalues of the matrix A = \begin{bmatrix}4 & 1 \\ 2 & 3\end{bmatrix}`;
+
+    expect(normalizeMathForRendering(input))
+      .toBe(String.raw`Find the eigenvalues of the matrix \(A = \begin{bmatrix}4 & 1 \\ 2 & 3\end{bmatrix}\)`);
+  });
+
+  it('does not introduce delimiters inside existing matrix environments', () => {
+    const input = String.raw`\(A = \begin{bmatrix}4 & 1 \\ 2 & 3\end{bmatrix}\)`;
+
+    expect(normalizeMathForRendering(input)).toBe(input);
+  });
+
   it('wraps simple inline equations inside prose', () => {
     const input = 'Solve x + 1 = 2.';
 

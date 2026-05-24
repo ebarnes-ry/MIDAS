@@ -302,6 +302,40 @@ def test_problem_type_is_reclassified_using_linked_block_latex():
     assert reclassified[0].problem_type == ProblemType.CALCULUS
 
 
+def test_problem_text_is_repaired_from_richer_linked_matrix_block():
+    pipeline = VisionPipeline.__new__(VisionPipeline)
+    problem = Problem(
+        problem_id="problem_1",
+        problem_text="Find the eigenvalues of the matrix",
+        block_ids=["matrix_block"],
+        problem_type=ProblemType.LINEAR_ALGEBRA,
+    )
+    document = UIDocument(
+        blocks=[
+            UIBlock(
+                id="matrix_block",
+                block_type="SectionHeader",
+                html="",
+                polygon=[],
+                bbox=[0, 0, 10, 10],
+                children=[],
+                section_hierarchy={},
+                latex_content=r"Find the eigenvalues of the matrix A = \begin{bmatrix}4 & 1 \\ 2 & 3\end{bmatrix}",
+                is_editable=True,
+            )
+        ],
+        full_page_text=r"Find the eigenvalues of the matrix A = \begin{bmatrix}4 & 1 \\ 2 & 3\end{bmatrix}",
+        images={},
+        metadata={},
+        dimensions=(10, 10),
+        problems=[problem],
+    )
+
+    repaired = pipeline._repair_problem_text_from_linked_blocks([problem], document)
+
+    assert repaired[0].problem_text == document.blocks[0].latex_content
+
+
 def test_instruction_stem_merge_stops_before_non_math_block():
     pipeline = VisionPipeline.__new__(VisionPipeline)
     pipeline.grouper = SemanticGrouper.__new__(SemanticGrouper)

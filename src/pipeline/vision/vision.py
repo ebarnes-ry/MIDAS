@@ -43,6 +43,7 @@ class VisionPipeline:
         #ui_document.problems = self._link_problems_to_blocks(problems, ui_document)
         problems_with_blocks = self._link_problems_to_blocks(problems, ui_document)
         problems_with_blocks = self._repair_problem_assembly(problems_with_blocks, ui_document)
+        problems_with_blocks = self._repair_problem_text_from_linked_blocks(problems_with_blocks, ui_document)
         problems_with_blocks = self._reclassify_problem_types(problems_with_blocks, ui_document)
 
         # Step 5: Explicitly associate figure descriptions with the problems.
@@ -189,6 +190,62 @@ class VisionPipeline:
             for block in document.blocks
             if block.id in linked_ids and block.latex_content
         ]
+
+    def _linked_block_text_in_order(self, problem: Problem, document: UIDocument) -> str:
+        linked_ids = set(problem.block_ids)
+        return "\n".join(
+            block.latex_content.strip()
+            for block in document.blocks
+            if block.id in linked_ids
+            and block.latex_content
+            and block.latex_content.strip()
+        ).strip()
+
+    def _has_important_math_missing_from_problem(self, candidate: str, problem_text: str) -> bool:
+        candidate_lower = candidate.lower()
+        problem_lower = problem_text.lower()
+        math_markers = (
+            "\\begin",
+            "\\end",
+            "\\frac",
+            "\\sqrt",
+            "\\sum",
+            "\\int",
+            "\\lim",
+            "\\det",
+            "bmatrix",
+            "pmatrix",
+            "matrix",
+            "=",
+            "^",
+            "_",
+        )
+        return any(marker in candidate_lower and marker not in problem_lower for marker in math_markers)
+
+    def _repair_problem_text_from_linked_blocks(self, problems: List[Problem], document: UIDocument) -> List[Problem]:
+        """
+        Prefer linked block text when grouping returned an incomplete stem but
+        block linking found a richer block containing the missing math. This is
+        intentionally conservative: the linked text must contain the grouped
+        text and add math markers absent from the grouped problem statement.
+        """
+        for problem in problems:
+            candidate = self._linked_block_text_in_order(problem, document)
+            if not candidate:
+                continue
+
+            normalized_problem = self._normalize_text(problem.problem_text)
+            normalized_candidate = self._normalize_text(candidate)
+            if not normalized_problem or normalized_problem == normalized_candidate:
+                continue
+
+            contains_problem = normalized_problem in normalized_candidate
+            materially_richer = len(normalized_candidate) > len(normalized_problem) + 8
+            missing_math = self._has_important_math_missing_from_problem(candidate, problem.problem_text)
+
+            if contains_problem and materially_richer and missing_math:
+                problem.problem_text = candidate
+        return problems
 
     def _reclassify_problem_types(self, problems: List[Problem], document: UIDocument) -> List[Problem]:
         """
