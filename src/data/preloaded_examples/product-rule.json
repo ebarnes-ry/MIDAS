@@ -11,7 +11,8 @@
     "source": "preloaded_example",
     "example_id": "product-rule",
     "example_label": "Product rule",
-    "cache_note": "This example uses a precomputed OCR and grouping result so the demo can skip the slow document-ingest step."
+    "cache_note": "This example uses a precomputed OCR and grouping result so the demo can skip the slow document-ingest step.",
+    "manual_review": "Cached problem statement and primary block text verified against the example image."
   },
   "ui_document": {
     "blocks": [
@@ -76,7 +77,7 @@
       {
         "id": "/page/0/SectionHeader/0",
         "block_type": "SectionHeader",
-        "html": "<p>Find the derivative of <math>f(x) = x^{2} \\cdot e^{x}</math></p>",
+        "html": "Find the derivative of \\(f(x) = x^2 e^x\\).",
         "polygon": [
           91.0,
           452.0,
@@ -99,11 +100,11 @@
         },
         "images": {},
         "image_description": null,
-        "latex_content": "Find the derivative of $f(x) = x^{2} \\cdot e^{x}$",
+        "latex_content": "Find the derivative of \\(f(x) = x^2 e^x\\).",
         "is_editable": true
       }
     ],
-    "full_page_text": "Image /page/0/Picture/1 description: The image shows a mathematical expression consisting of three elements. First, the variable x is squared, represented as x with a superscript 2. Next, there is a centered dot indicating multiplication. Finally, there is the constant e raised to the power of x, shown as e with superscript x. The entire expression reads as x squared multiplied by e to the power of x (x^2 \u00b7 e^x).\n\nFind the derivative of $f(x) = x^{2} \\cdot e^{x}$\n\n$x^2 \\cdot e^x$",
+    "full_page_text": "Find the derivative of \\(f(x) = x^2 e^x\\).",
     "images": {},
     "metadata": {
       "table_of_contents": [
@@ -172,11 +173,10 @@
     "problems": [
       {
         "problem_id": "problem_1",
-        "problem_text": "Find the derivative of $f(x) = x^{2} \\cdot e^{x}$",
+        "problem_text": "Find the derivative of \\(f(x) = x^2 e^x\\).",
         "figure_references": [],
         "block_ids": [
-          "/page/0/SectionHeader/0",
-          "/page/0/Picture/1"
+          "/page/0/SectionHeader/0"
         ],
         "referenced_figure_descriptions": [],
         "problem_type": "calculus",

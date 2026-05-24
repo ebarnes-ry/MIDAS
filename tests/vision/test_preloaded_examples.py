@@ -7,6 +7,39 @@ from src.pipeline.vision.preloaded_examples import (
 )
 
 
+EXPECTED_PROBLEM_TEXT = {
+    "definite-integral": (
+        "Evaluate the definite integral:\n"
+        "\\[\n"
+        "\\int_0^2 \\left(3x^2 - 2x + 1\\right)\\,dx\n"
+        "\\]"
+    ),
+    "eigenvalues": (
+        "Find the eigenvalues of the matrix\n"
+        "\\[\n"
+        "A = \\begin{bmatrix} 4 & 1 \\\\ 2 & 3 \\end{bmatrix}\n"
+        "\\]"
+    ),
+    "integration-by-parts": (
+        "Evaluate the integral:\n"
+        "\\[\n"
+        "\\int x \\cos(x)\\,dx\n"
+        "\\]"
+    ),
+    "product-rule": "Find the derivative of \\(f(x) = x^2 e^x\\).",
+    "quadratic-with-discriminant": "Solve \\(2x^2 - 7x + 3 = 0\\).",
+    "system-linear-equations": (
+        "Solve the system:\n"
+        "\\[\n"
+        "\\begin{cases}\n"
+        "3x + 2y = 12 \\\\\n"
+        "x - y = 1\n"
+        "\\end{cases}\n"
+        "\\]"
+    ),
+}
+
+
 def test_preloaded_examples_exist_and_have_problem_text():
     available = {
         example["id"]: example["cached"]
@@ -24,7 +57,14 @@ def test_preloaded_examples_exist_and_have_problem_text():
         assert payload["processing_metadata"]["source"] == "preloaded_example"
         assert document.blocks
         assert document.problems
-        assert document.problems[0].problem_text.strip()
+        problem = document.problems[0]
+        assert problem.problem_text == EXPECTED_PROBLEM_TEXT[example_id]
+        assert problem.problem_input_complete is True
+        assert problem.missing_problem_content is False
+        assert problem.missing_content_reason is None
+        assert "\\\\n" not in problem.problem_text
+        assert problem.block_ids
+        assert set(problem.block_ids).issubset({block.id for block in document.blocks})
 
 
 def test_preloaded_document_serialization_round_trips():

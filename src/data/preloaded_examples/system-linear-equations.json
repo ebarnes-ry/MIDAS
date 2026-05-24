@@ -11,7 +11,8 @@
     "source": "preloaded_example",
     "example_id": "system-linear-equations",
     "example_label": "Linear system",
-    "cache_note": "This example uses a precomputed OCR and grouping result so the demo can skip the slow document-ingest step."
+    "cache_note": "This example uses a precomputed OCR and grouping result so the demo can skip the slow document-ingest step.",
+    "manual_review": "Cached problem statement and primary block text verified against the example image."
   },
   "ui_document": {
     "blocks": [
@@ -47,7 +48,7 @@
       {
         "id": "/page/0/SectionHeader/0",
         "block_type": "SectionHeader",
-        "html": "<math display=\"block\">x - y = 1</math>",
+        "html": "Solve the system:\n\\[\n\\begin{cases}\n3x + 2y = 12 \\\\\nx - y = 1\n\\end{cases}\n\\]",
         "polygon": [
           383.0,
           229.07470703125,
@@ -70,7 +71,7 @@
         },
         "images": {},
         "image_description": null,
-        "latex_content": "$$x - y = 1$$",
+        "latex_content": "Solve the system:\n\\[\n\\begin{cases}\n3x + 2y = 12 \\\\\nx - y = 1\n\\end{cases}\n\\]",
         "is_editable": true
       },
       {
@@ -103,7 +104,7 @@
         "is_editable": false
       }
     ],
-    "full_page_text": "$$x - y = 1$$\n\nImage /page/0/Picture/1 description: A close-up image displaying the number '2' in a large, bold, black serif font on a light background.\n\n$2$",
+    "full_page_text": "Solve the system:\n\\[\n\\begin{cases}\n3x + 2y = 12 \\\\\nx - y = 1\n\\end{cases}\n\\]",
     "images": {},
     "metadata": {
       "table_of_contents": [

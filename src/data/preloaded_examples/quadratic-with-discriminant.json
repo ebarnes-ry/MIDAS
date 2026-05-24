@@ -11,7 +11,8 @@
     "source": "preloaded_example",
     "example_id": "quadratic-with-discriminant",
     "example_label": "Quadratic complex roots",
-    "cache_note": "This example uses a precomputed OCR and grouping result so the demo can skip the slow document-ingest step."
+    "cache_note": "This example uses a precomputed OCR and grouping result so the demo can skip the slow document-ingest step.",
+    "manual_review": "Cached problem statement and primary block text verified against the example image."
   },
   "ui_document": {
     "blocks": [
@@ -45,7 +46,7 @@
       {
         "id": "/page/0/Handwriting/0",
         "block_type": "Handwriting",
-        "html": "<p>Solve <math>2x^{2} - 7x + 3 = 0</math></p>",
+        "html": "Solve \\(2x^2 - 7x + 3 = 0\\).",
         "polygon": [
           214.0,
           415.0,
@@ -66,7 +67,7 @@
         "section_hierarchy": {},
         "images": {},
         "image_description": null,
-        "latex_content": "Solve $2x^{2} - 7x + 3 = 0$",
+        "latex_content": "Solve \\(2x^2 - 7x + 3 = 0\\).",
         "is_editable": false
       },
       {
@@ -97,7 +98,7 @@
         "is_editable": false
       }
     ],
-    "full_page_text": "Solve $2x^{2} - 7x + 3 = 0$\n\nImage /page/0/Picture/1 description: The image shows a large, bold, black number zero ('0') on a white background. The font is serif, with thin and thick strokes, and the number is vertically oriented in the center of the image.\n\n$0$",
+    "full_page_text": "Solve \\(2x^2 - 7x + 3 = 0\\).",
     "images": {},
     "metadata": {
       "table_of_contents": [],
@@ -142,7 +143,7 @@
     "problems": [
       {
         "problem_id": "problem_1",
-        "problem_text": "Solve $2x^{2} - 7x + 3 = 0$",
+        "problem_text": "Solve \\(2x^2 - 7x + 3 = 0\\).",
         "figure_references": [],
         "block_ids": [
           "/page/0/Handwriting/0"

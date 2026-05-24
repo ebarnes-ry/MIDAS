@@ -12,7 +12,7 @@
     "example_id": "integration-by-parts",
     "example_label": "Integration by parts",
     "cache_note": "This example uses a precomputed OCR and grouping result so the demo can skip the slow document-ingest step.",
-    "manual_review": "Problem statement normalized after cache generation."
+    "manual_review": "Cached problem statement and primary block text verified against the example image."
   },
   "ui_document": {
     "blocks": [
@@ -46,7 +46,7 @@
       {
         "id": "/page/0/Equation/0",
         "block_type": "Equation",
-        "html": "<p block-type=\"Equation\"><p block-type=\"Equation\"><math display=\"block\">\\int x \\cdot \\cos(x) \\; dx</math></p></p>",
+        "html": "Evaluate the integral:\n\\[\n\\int x \\cos(x)\\,dx\n\\]",
         "polygon": [
           219.140625,
           364.75,
@@ -67,7 +67,7 @@
         "section_hierarchy": {},
         "images": {},
         "image_description": null,
-        "latex_content": "$$\\int x \\cdot \\cos(x) \\; dx$$",
+        "latex_content": "Evaluate the integral:\n\\[\n\\int x \\cos(x)\\,dx\n\\]",
         "is_editable": true
       },
       {
@@ -98,7 +98,7 @@
         "is_editable": false
       }
     ],
-    "full_page_text": "$$\\int x \\cdot \\cos(x) \\; dx$$\n\nImage /page/0/Picture/1 description: The image shows a portion of a mathematical expression focusing on the differential element, written as 'dx' in italic font. The 'd' is lowercase and the 'x' is also lowercase, commonly used in calculus integrals or derivatives.\n\n$dx$",
+    "full_page_text": "Evaluate the integral:\n\\[\n\\int x \\cos(x)\\,dx\n\\]",
     "images": {},
     "metadata": {
       "table_of_contents": [],
@@ -139,7 +139,7 @@
     "problems": [
       {
         "problem_id": "problem_1",
-        "problem_text": "Evaluate $$\\int x \\cdot \\cos(x) \\; dx$$",
+        "problem_text": "Evaluate the integral:\n\\[\n\\int x \\cos(x)\\,dx\n\\]",
         "figure_references": [],
         "block_ids": [
           "/page/0/Equation/0"

@@ -11,7 +11,8 @@
     "source": "preloaded_example",
     "example_id": "eigenvalues",
     "example_label": "Eigenvalues",
-    "cache_note": "This example uses a precomputed OCR and grouping result so the demo can skip the slow document-ingest step."
+    "cache_note": "This example uses a precomputed OCR and grouping result so the demo can skip the slow document-ingest step.",
+    "manual_review": "Cached problem statement and primary block text verified against the example image."
   },
   "ui_document": {
     "blocks": [
@@ -47,7 +48,7 @@
       {
         "id": "/page/0/SectionHeader/0",
         "block_type": "SectionHeader",
-        "html": "<p>Find the eigenvalues of the matrix <math display=\"block\">A = \\begin{bmatrix}4 &amp; 1 \\\\ 2 &amp; 3\\end{bmatrix}</math></p>",
+        "html": "Find the eigenvalues of the matrix\n\\[\nA = \\begin{bmatrix} 4 & 1 \\\\ 2 & 3 \\end{bmatrix}\n\\]",
         "polygon": [
           96.0,
           289.5,
@@ -70,11 +71,11 @@
         },
         "images": {},
         "image_description": null,
-        "latex_content": "Find the eigenvalues of the matrix\n$$A = \\begin{bmatrix}4 & 1 \\\\ 2 & 3\\end{bmatrix}$$",
+        "latex_content": "Find the eigenvalues of the matrix\n\\[\nA = \\begin{bmatrix} 4 & 1 \\\\ 2 & 3 \\end{bmatrix}\n\\]",
         "is_editable": true
       }
     ],
-    "full_page_text": "Find the eigenvalues of the matrix\n$$A = \\begin{bmatrix}4 & 1 \\\\ 2 & 3\\end{bmatrix}$$",
+    "full_page_text": "Find the eigenvalues of the matrix\n\\[\nA = \\begin{bmatrix} 4 & 1 \\\\ 2 & 3 \\end{bmatrix}\n\\]",
     "images": {},
     "metadata": {
       "table_of_contents": [
@@ -139,7 +140,7 @@
     "problems": [
       {
         "problem_id": "problem_1",
-        "problem_text": "Find the eigenvalues of the matrix\n$$A = \\begin{bmatrix}4 & 1 \\\\ 2 & 3\\end{bmatrix}$$",
+        "problem_text": "Find the eigenvalues of the matrix\n\\[\nA = \\begin{bmatrix} 4 & 1 \\\\ 2 & 3 \\end{bmatrix}\n\\]",
         "figure_references": [],
         "block_ids": [
           "/page/0/SectionHeader/0"
