@@ -11,19 +11,10 @@ interface StepCardProps {
 export const StepCard: React.FC<StepCardProps> = ({ step, problemStatement }) => {
   const [feedback, setFeedback] = useState<string | null>(step.feedback || null);
   const [loadingFeedback, setLoadingFeedback] = useState(false);
+  const [detailsOpen, setDetailsOpen] = useState(false);
 
   const statusBorder =
-    step.verification_status === true  ? 'border-l-green-500 bg-green-50' :
-    step.verification_status === false ? 'border-l-red-500 bg-red-50' :
-                                          'border-l-gray-200 bg-white';
-
-  const statusIcon =
-    step.verification_status === true  ? '✓' :
-    step.verification_status === false ? '✗' : '·';
-
-  const statusColor =
-    step.verification_status === true  ? 'text-green-600' :
-    step.verification_status === false ? 'text-red-600' : 'text-gray-400';
+    step.verification_status === false ? 'var(--failed)' : 'var(--rule-lt)';
 
   const handleGetFeedback = async () => {
     setLoadingFeedback(true);
@@ -46,16 +37,37 @@ export const StepCard: React.FC<StepCardProps> = ({ step, problemStatement }) =>
   };
 
   return (
-    <div className={`border-l-4 pl-4 py-3 mb-2 rounded-r transition-colors ${statusBorder}`}>
-      <div className="flex items-baseline gap-2 mb-1">
-        <span className={`font-mono font-bold text-sm ${statusColor}`}>
-          {statusIcon} Step {step.step_number}
+    <div
+      style={{
+        borderLeft: `3px solid ${statusBorder}`,
+        padding: '13px 14px 13px 18px',
+        marginBottom: 6,
+        borderRadius: '0 5px 5px 0',
+        background: 'var(--cream)',
+      }}
+    >
+      <div className="flex items-center gap-2 mb-1">
+        <span className="font-mono font-bold text-sm" style={{ color: step.verification_status === false ? 'var(--failed)' : 'var(--ink-3)' }}>
+          Step {step.step_number}
         </span>
         {step.verification_status === true && (
-          <span className="text-xs text-green-600">Verified by SymPy</span>
+          <span
+            className="text-xs"
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 5,
+              color: 'var(--verified)',
+              fontFamily: "'JetBrains Mono', monospace",
+              fontSize: 10.5,
+            }}
+          >
+            <span style={{ width: 15, height: 15, borderRadius: '50%', background: 'var(--verified)', color: 'white', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, lineHeight: 1 }}>✓</span>
+            Verified
+          </span>
         )}
         {step.verification_status === false && (
-          <span className="text-xs text-red-600">Verification failed</span>
+          <span className="text-xs" style={{ color: 'var(--failed)', fontFamily: "'JetBrains Mono', monospace", fontSize: 10.5 }}>Verification failed</span>
         )}
       </div>
 
@@ -74,9 +86,26 @@ export const StepCard: React.FC<StepCardProps> = ({ step, problemStatement }) =>
       </div>
 
       {step.verification_status === false && step.verification_note && (
-        <div className="mt-2 font-mono text-xs text-red-700 bg-red-50 border border-red-100 px-2 py-1 rounded">
-          SymPy: {step.verification_note}
-        </div>
+        <details
+          open={detailsOpen}
+          onToggle={(event) => setDetailsOpen(event.currentTarget.open)}
+          className="mt-2"
+        >
+          <summary
+            style={{
+              cursor: 'pointer',
+              color: 'var(--failed)',
+              fontFamily: "'JetBrains Mono', monospace",
+              fontSize: 11,
+              listStyle: 'none',
+            }}
+          >
+            Details
+          </summary>
+          <div className="mt-2 font-mono text-xs px-2 py-1 rounded" style={{ color: 'var(--failed)', background: 'var(--failed-bg)', border: '1px solid var(--failed-bd)' }}>
+            {step.verification_note}
+          </div>
+        </details>
       )}
 
       {step.verification_status === false && feedback && (

@@ -76,9 +76,9 @@
 
   .example-input-card:hover:not(:disabled),
   .example-input-card:focus-visible:not(:disabled) {
-    transform: scale(1.035);
+    transform: scale(1.025);
     border-color: var(--accent);
-    box-shadow: 0 8px 22px rgba(30, 58, 95, 0.14);
+    box-shadow: 0 6px 16px rgba(30, 58, 95, 0.12);
     outline: none;
     background: var(--cream);
   }

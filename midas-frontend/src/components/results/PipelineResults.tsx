@@ -25,6 +25,17 @@ const ERR_META: Record<string, { label: string; description: string }> = {
 const mono: React.CSSProperties = { fontFamily: "'JetBrains Mono', monospace" };
 const serif2: React.CSSProperties = { fontFamily: "'Crimson Pro', serif" };
 
+const DetailsBox: React.FC<{ title?: string; children: React.ReactNode }> = ({ title = 'Details', children }) => (
+  <details style={{ marginTop: 10 }}>
+    <summary style={{ ...mono, cursor: 'pointer', fontSize: 10.5, color: 'var(--ink-3)', letterSpacing: '0.03em' }}>
+      {title}
+    </summary>
+    <div style={{ marginTop: 8, padding: '9px 10px', border: '1px solid var(--rule-lt)', borderRadius: 4, background: 'var(--cream)', color: 'var(--ink-2)', ...mono, fontSize: 10.5, lineHeight: 1.65, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>
+      {children}
+    </div>
+  </details>
+);
+
 // ── Sidebar ───────────────────────────────────────────────────────────────────
 const Sidebar: React.FC<{
   problemStatement: string;
@@ -134,7 +145,7 @@ export const PipelineResults: React.FC<{ result: CompletePipelineResponse; onSta
         .midas-btn-ghost:hover { background:var(--parchment); }
         .midas-btn-on { font-family:'JetBrains Mono',monospace; font-size:11px; padding:6px 14px; border-radius:4px; cursor:pointer; border:1px solid var(--accent); background:var(--accent-lt); color:var(--accent); transition:all .13s; }
         .midas-step-card { border-left:3px solid var(--rule-lt); border-radius:0 5px 5px 0; padding:13px 14px 13px 18px; background:var(--cream); margin-bottom:3px; display:flex; gap:0; transition:background .15s,border-color .15s; }
-        .midas-step-card.v { border-left-color:var(--verified); background:var(--verified-bg); }
+        .midas-step-card.v { border-left-color:var(--rule-lt); background:var(--cream); }
         .midas-step-card.f { border-left-color:var(--failed); background:var(--failed-bg); }
         .midas-widget { background:var(--parchment); border:1px solid var(--rule); border-radius:6px; overflow:hidden; margin-bottom:14px; }
         .midas-widget-hd { padding:9px 13px; border-bottom:1px solid var(--rule); font-size:9.5px; font-family:'JetBrains Mono',monospace; letter-spacing:.12em; text-transform:uppercase; color:var(--ink-3); display:flex; align-items:center; justify-content:space-between; }
@@ -281,9 +292,7 @@ export const PipelineResults: React.FC<{ result: CompletePipelineResponse; onSta
                   )}
                   <div className="midas-w-row"><span style={{ ...serif2, color: 'var(--ink-3)' }}>Steps verified</span><span style={{ ...mono, fontSize: 11.5, color: steps.filter(s => s.verification_status === true).length === steps.length ? 'var(--verified)' : 'var(--ink)' }}>{steps.filter(s => s.verification_status === true).length} / {steps.length}</span></div>
                   <div className="midas-w-row"><span style={{ ...serif2, color: 'var(--ink-3)' }}>Steps failed</span><span style={{ ...mono, fontSize: 11.5, color: steps.filter(s => s.verification_status === false).length > 0 ? 'var(--failed)' : 'var(--ink)' }}>{steps.filter(s => s.verification_status === false).length}</span></div>
-                  {verificationMetadata.unsupported_reason && <div className="midas-w-row"><span style={{ ...serif2, color: 'var(--ink-3)' }}>Boundary</span><span style={{ ...mono, fontSize: 11.5 }}>{String(verificationMetadata.unsupported_reason).replaceAll('_', ' ')}</span></div>}
-                  {verificationMetadata.visual_context_required !== undefined && <div className="midas-w-row"><span style={{ ...serif2, color: 'var(--ink-3)' }}>Visual context</span><span style={{ ...mono, fontSize: 11.5 }}>{verificationMetadata.visual_context_attached ? 'attached' : verificationMetadata.visual_context_required ? 'needed' : 'not needed'}</span></div>}
-                  <div className="midas-w-row"><span style={{ ...serif2, color: 'var(--ink-3)' }}>Repair attempts</span><span style={{ ...mono, fontSize: 11.5 }}>{repairAttempts}</span></div>
+                  {verificationMetadata.visual_context_required === true && <div className="midas-w-row"><span style={{ ...serif2, color: 'var(--ink-3)' }}>Visual context</span><span style={{ ...mono, fontSize: 11.5 }}>{verificationMetadata.visual_context_attached ? 'attached' : 'needed'}</span></div>}
                   <div className="midas-w-row"><span style={{ ...serif2, color: 'var(--ink-3)' }}>Confidence</span><span style={{ ...mono, fontSize: 11.5 }}>{(verification.confidence_score * 100).toFixed(1)}%</span></div>
                   {/* Step dots */}
                   <div style={{ display: 'flex', gap: 5, marginTop: 10, flexWrap: 'wrap' }}>
@@ -291,6 +300,14 @@ export const PipelineResults: React.FC<{ result: CompletePipelineResponse; onSta
                       <div key={s.step_number} title={`Step ${s.step_number}`} style={{ width: 11, height: 11, borderRadius: '50%', background: s.verification_status === true ? 'var(--verified)' : s.verification_status === false ? 'var(--failed)' : 'var(--rule)' }} />
                     ))}
                   </div>
+                  <DetailsBox>
+                    <div>Repair attempts: {repairAttempts}</div>
+                    {verificationMetadata.unsupported_reason && <div>Boundary: {String(verificationMetadata.unsupported_reason).replaceAll('_', ' ')}</div>}
+                    {verificationMetadata.visual_context_required !== undefined && (
+                      <div>Visual context: {verificationMetadata.visual_context_attached ? 'attached' : verificationMetadata.visual_context_required ? 'needed' : 'not needed'}</div>
+                    )}
+                    <div>Processing time: {verification.processing_time?.toFixed ? verification.processing_time.toFixed(2) : verification.processing_time}s</div>
+                  </DetailsBox>
                 </div>
               </div>
             )}
@@ -307,10 +324,13 @@ export const PipelineResults: React.FC<{ result: CompletePipelineResponse; onSta
                       {err.error_type.toLowerCase().replace('_', ' ')}
                     </span>
                   </div>
-                  <div style={{ padding: '10px 13px', fontSize: 12, color: 'var(--ink-2)', ...mono, lineHeight: 1.7 }}>
-                    {meta.description && <div style={{ fontStyle: 'italic', fontFamily: "'Crimson Pro', serif", fontSize: 13, color: 'var(--ink-3)', marginBottom: 4 }}>{meta.description}</div>}
-                    {err.message}
-                    {err.suggested_fix && <div style={{ marginTop: 6, fontSize: 12, fontStyle: 'italic', color: isFault ? 'var(--failed)' : 'var(--amber)', fontFamily: "'Crimson Pro', serif" }}>Suggestion: {err.suggested_fix}</div>}
+                  <div style={{ padding: '10px 13px', fontSize: 13, color: 'var(--ink-2)', ...serif2, lineHeight: 1.55 }}>
+                    {meta.description || 'Verification could not complete cleanly.'}
+                    <DetailsBox>
+                      <div>{err.message}</div>
+                      {err.suggested_fix && <div style={{ marginTop: 8 }}>Suggestion: {err.suggested_fix}</div>}
+                      {err.traceback && <div style={{ marginTop: 8 }}>{err.traceback}</div>}
+                    </DetailsBox>
                   </div>
                 </div>
               );
@@ -318,11 +338,11 @@ export const PipelineResults: React.FC<{ result: CompletePipelineResponse; onSta
 
             {/* Trajectory metadata */}
             {repairAttempts >= 0 && (
-              <div style={{ ...mono, fontSize: 10.5, color: 'var(--ink-3)', lineHeight: 2.0, paddingTop: 10, borderTop: '1px solid var(--rule-lt)' }}>
-                <div>attempt_count &nbsp;<span style={{ color: 'var(--ink-2)' }}>{repairAttempts + 1}</span></div>
-                <div>steps &nbsp;<span style={{ color: 'var(--ink-2)' }}>{steps.length}</span></div>
-                <div>prompt_version &nbsp;<span style={{ color: 'var(--ink-2)' }}>solve@v2</span></div>
-              </div>
+              <DetailsBox title="Run details">
+                <div>attempt_count: {repairAttempts + 1}</div>
+                <div>steps: {steps.length}</div>
+                <div>prompt_version: solve@v2</div>
+              </DetailsBox>
             )}
           </div>
         </div>

@@ -143,6 +143,9 @@ const EditableVisualContext: React.FC<{
   const confirm = () => { onChange(draft); setEditing(false); };
   const discard = () => { setDraft(value); setEditing(false); };
   const hasContext = !removed && value.trim().length > 0;
+  const isRelevant = required || hasContext || Boolean(original) || removed;
+
+  if (!isRelevant) return null;
 
   return (
     <div style={{ marginTop: 14, border: `1.5px solid ${hasContext ? 'var(--amber-bd)' : required ? 'var(--failed-bd)' : 'var(--rule)'}`, borderRadius: 7, background: hasContext ? 'var(--amber-bg)' : 'var(--parchment)', overflow: 'hidden' }}>

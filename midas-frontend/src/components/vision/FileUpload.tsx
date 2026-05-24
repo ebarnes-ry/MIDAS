@@ -124,20 +124,17 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onFileSelect, isLoading 
         </div>
 
         {/* Example inputs */}
-        <div style={{ marginTop: 8, marginBottom: 18, textAlign: 'left' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12, marginBottom: 12 }}>
+        <div style={{ marginTop: 4, marginBottom: 14, textAlign: 'left' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12, marginBottom: 9 }}>
             <div style={{ fontSize: 10, fontFamily: "'JetBrains Mono', monospace", letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--ink-3)' }}>
               Example inputs
-            </div>
-            <div style={{ fontSize: 12.5, color: 'var(--ink-3)', fontStyle: 'italic', fontFamily: "'Crimson Pro', serif" }}>
-              choose one to try MIDAS
             </div>
           </div>
           <div
             style={{
               display: 'grid',
               gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
-              gap: 10,
+              gap: 8,
             }}
           >
             {EXAMPLE_INPUTS.map((example) => {
@@ -153,8 +150,8 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onFileSelect, isLoading 
                   disabled={disabled}
                   style={{
                     border: '1px solid var(--rule)',
-                    borderRadius: 7,
-                    background: 'var(--parchment)',
+                    borderRadius: 6,
+                    background: 'var(--cream)',
                     padding: 0,
                     cursor: disabled ? 'wait' : 'pointer',
                     overflow: 'hidden',
@@ -163,7 +160,7 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onFileSelect, isLoading 
                     color: 'var(--ink)',
                   }}
                 >
-                  <div style={{ aspectRatio: '4 / 3', background: 'var(--cream)', overflow: 'hidden', borderBottom: '1px solid var(--rule-lt)' }}>
+                  <div style={{ aspectRatio: '5 / 3', background: 'var(--parchment)', overflow: 'hidden', borderBottom: '1px solid var(--rule-lt)' }}>
                     <img
                       src={example.src}
                       alt=""
@@ -174,13 +171,13 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onFileSelect, isLoading 
                         height: '100%',
                         objectFit: 'contain',
                         display: 'block',
-                        padding: 6,
+                        padding: 5,
                         boxSizing: 'border-box',
                       }}
                     />
                   </div>
-                  <div style={{ padding: '7px 8px 8px' }}>
-                    <div style={{ fontSize: 11, lineHeight: 1.25, fontFamily: "'JetBrains Mono', monospace", color: isSelecting ? 'var(--accent)' : 'var(--ink-2)' }}>
+                  <div style={{ padding: '6px 7px 7px' }}>
+                    <div style={{ fontSize: 10.5, lineHeight: 1.25, fontFamily: "'JetBrains Mono', monospace", color: isSelecting ? 'var(--accent)' : 'var(--ink-3)' }}>
                       {isSelecting ? 'loading…' : example.label}
                     </div>
                   </div>
