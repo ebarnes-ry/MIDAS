@@ -24,6 +24,9 @@ export const DocumentPreview: React.FC<DocumentPreviewProps> = ({
           <div className="p-4 border-b border-gray-200 bg-gray-50">
             <h2 className="text-lg font-semibold text-gray-900">Document Preview</h2>
             <p className="text-sm text-gray-600 mt-1">Ready to process: {fileName}</p>
+            <p className="text-sm text-gray-500 mt-2 italic">
+              Fresh uploads run OCR, layout analysis, and grouping live. This can take several minutes.
+            </p>
           </div>
 
           {/* Image Preview */}

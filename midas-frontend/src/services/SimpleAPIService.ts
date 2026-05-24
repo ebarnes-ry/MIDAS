@@ -13,7 +13,7 @@ import {
 } from '../types/api';
 
 const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:8000';
-const DEFAULT_TIMEOUT = 300000; // 5 minutes
+const DEFAULT_TIMEOUT = 900000; // 15 minutes
 
 const CLIENT_ID_KEY = 'midas_client_id';
 
@@ -97,13 +97,21 @@ export class SimpleAPIService {
 
     return response.json();
   }
+
+  static async loadExampleDocument(exampleId: string): Promise<DocumentUploadResponse> {
+    const response = await this._fetchWithTimeout(`${API_BASE}/api/v1/vision/examples/${exampleId}`, {
+      method: 'POST',
+    });
+
+    return response.json();
+  }
   
   static async runCompletePipeline(request: UserSelectionRequest): Promise<CompletePipelineResponse> {
     const response = await this._fetchWithTimeout(`${API_BASE}/api/v1/vision/complete`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(request),
-    });
+    }, DEFAULT_TIMEOUT);
     return response.json();
   }
 

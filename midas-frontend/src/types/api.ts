@@ -65,6 +65,7 @@ export interface DocumentUploadResponse {
   success: boolean;
   message: string;
   timestamp: string;
+  quota?: QuotaBucket;
   data: {
     document_id: string;
     document: APIDocument;
@@ -207,6 +208,7 @@ export interface DocumentState {
   error: string | null;
   processingStage: ProcessingStage;
   uploadedFile: File | null;
+  processingMetadata: Record<string, any> | null;
   completePipelineResult: CompletePipelineResponse | null;
   quota: QuotaStatus | null;
 }

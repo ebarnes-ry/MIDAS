@@ -121,6 +121,9 @@ model_cache/
 downloads/
 artifacts/
 data/
+!src/data/
+!src/data/preloaded_examples/
+!src/data/preloaded_examples/*.json
 *.pkl
 *.h5
 *.hdf5
@@ -159,6 +162,7 @@ data/
 # Deployment config — keep tracked despite *.json rule above
 !railway.json
 !midas-frontend/vercel.json
+!src/data/preloaded_examples/*.json
 *.feather
 *.pickle
 

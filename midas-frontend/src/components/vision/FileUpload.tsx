@@ -4,31 +4,37 @@ import { QuotaStatus } from '../../types/api';
 
 const EXAMPLE_INPUTS = [
   {
+    id: 'definite-integral',
     label: 'Definite integral',
     fileName: 'definite-integral.png',
     src: `${process.env.PUBLIC_URL}/examples/definite-integral.png`,
   },
   {
+    id: 'product-rule',
     label: 'Product rule',
     fileName: 'product-rule.png',
     src: `${process.env.PUBLIC_URL}/examples/product-rule.png`,
   },
   {
+    id: 'integration-by-parts',
     label: 'Integration by parts',
     fileName: 'integration-by-parts.png',
     src: `${process.env.PUBLIC_URL}/examples/integration-by-parts.png`,
   },
   {
+    id: 'eigenvalues',
     label: 'Eigenvalues',
     fileName: 'eigenvalues.png',
     src: `${process.env.PUBLIC_URL}/examples/eigenvalues.png`,
   },
   {
+    id: 'system-linear-equations',
     label: 'Linear system',
     fileName: 'system-linear-equations.png',
     src: `${process.env.PUBLIC_URL}/examples/system-linear-equations.png`,
   },
   {
+    id: 'quadratic-with-discriminant',
     label: 'Quadratic complex roots',
     fileName: 'quadratic-with-discriminant.png',
     src: `${process.env.PUBLIC_URL}/examples/quadratic-with-discriminant.png`,
@@ -37,12 +43,13 @@ const EXAMPLE_INPUTS = [
 
 interface FileUploadProps {
   onFileSelect: (file: File) => void;
+  onExampleSelect?: (exampleId: string) => void;
   isLoading?: boolean;
   error?: string | null;
   quota?: QuotaStatus | null;
 }
 
-export const FileUpload: React.FC<FileUploadProps> = ({ onFileSelect, isLoading = false, error, quota }) => {
+export const FileUpload: React.FC<FileUploadProps> = ({ onFileSelect, onExampleSelect = () => {}, isLoading = false, error, quota }) => {
   const [selectedExample, setSelectedExample] = React.useState<string | null>(null);
   const [exampleError, setExampleError] = React.useState<string | null>(null);
 
@@ -65,26 +72,13 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onFileSelect, isLoading 
     setExampleError(null);
 
     try {
-      const response = await fetch(example.src);
-      if (!response.ok) {
-        throw new Error(`Example image could not be loaded (${response.status}).`);
-      }
-
-      const blob = await response.blob();
-      if (!blob.size) {
-        throw new Error('Example image was empty.');
-      }
-
-      const file = new File([blob], example.fileName, {
-        type: blob.type || 'image/png',
-      });
-      onFileSelect(file);
+      onExampleSelect(example.id);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Example image could not be loaded.';
       setExampleError(message);
       setSelectedExample(null);
     }
-  }, [interactionDisabled, onFileSelect, selectedExample]);
+  }, [interactionDisabled, onExampleSelect, selectedExample]);
 
   const { getRootProps, getInputProps, isDragActive, isDragReject } = useDropzone({
     onDrop,
@@ -138,6 +132,11 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onFileSelect, isLoading 
           <div style={{ fontSize: 12.5, fontFamily: "'JetBrains Mono', monospace", color: 'var(--ink-3)' }}>
             PNG · JPG · up to 8 MB
           </div>
+          {!isLoading && !uploadBlocked && (
+            <div style={{ marginTop: 14, fontSize: 12.5, color: 'var(--ink-3)', fontFamily: "'Crimson Pro', serif", fontStyle: 'italic', lineHeight: 1.45 }}>
+              Fresh uploads run OCR and grouping live and may take several minutes.
+            </div>
+          )}
         </div>
 
         {/* Example inputs */}
@@ -145,6 +144,9 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onFileSelect, isLoading 
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12, marginBottom: 9 }}>
             <div style={{ fontSize: 10, fontFamily: "'JetBrains Mono', monospace", letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--ink-3)' }}>
               Example inputs
+            </div>
+            <div style={{ fontSize: 11.5, fontFamily: "'Crimson Pro', serif", fontStyle: 'italic', color: 'var(--ink-3)' }}>
+              preloaded for faster demo
             </div>
           </div>
           <div

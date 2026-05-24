@@ -41,7 +41,7 @@ services:
         model: gpt-4.1-mini
         base_url: https://api.openai.com/v1
         image_format: png
-        timeout: 120
+        timeout: 600
     type: marker
 
 tasks:
@@ -53,7 +53,7 @@ tasks:
       temperature: 0.1
       max_tokens: 4000
     prompt_ref: reasoning/solve@v3
-    timeout: 120
+    timeout: 600
 
   reasoning_repair:
     provider: openai
@@ -62,7 +62,7 @@ tasks:
       temperature: 0.1
       max_tokens: 4000
     prompt_ref: reasoning/repair@v2
-    timeout: 120
+    timeout: 600
 
   verification:
     provider: openai
@@ -71,12 +71,12 @@ tasks:
       temperature: 0.1
       max_tokens: 5000
     prompt_ref: codegen/baseline_codegen@v7
-    timeout: 120
+    timeout: 900
     max_repair_attempts: 3
     confidence_threshold: 0.95
     min_acceptable_confidence: 0.7
     repair_temperature: 0.2
-    execution_timeout: 300
+    execution_timeout: 600
     memory_limit_mb: 512
 
   explain_step:
@@ -86,7 +86,7 @@ tasks:
       temperature: 0.3
       max_tokens: 700
     prompt_ref: reasoning/explain_step@v1
-    timeout: 120
+    timeout: 600
 
   group_problems:
     provider: openai
@@ -95,7 +95,7 @@ tasks:
       temperature: 0.1
       max_tokens: 1500
     prompt_ref: vision/group_problems@v3
-    timeout: 120
+    timeout: 600
 
   vision:
     provider: ollama_local
@@ -115,7 +115,7 @@ tasks:
       temperature: 0.1
       max_tokens: 200
     prompt_ref: vision/validate@v1
-    timeout: 120
+    timeout: 600
 
   json_repair:
     provider: openai
@@ -124,4 +124,4 @@ tasks:
       temperature: 0.1
       max_tokens: 1200
     prompt_ref: vision/repair_json@v1
-    timeout: 120
+    timeout: 600

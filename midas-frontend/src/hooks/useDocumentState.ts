@@ -16,6 +16,7 @@ const initialState: DocumentState = {
   error: null,
   processingStage: 'idle',
   uploadedFile: null,
+  processingMetadata: null,
   completePipelineResult: null,
   quota: null,
 };
@@ -79,6 +80,8 @@ export const useDocumentState = () => {
           ...prev,
           document: response.data.document,
           documentId: response.data.document_id,
+          originalImageBase64: response.data.original_image_base64,
+          processingMetadata: response.data.processing_metadata,
           processingStage: 'complete',
           isLoading: false,
         }));
@@ -93,6 +96,37 @@ export const useDocumentState = () => {
       setState(prev => ({ ...prev, error: handleAPIError(err), processingStage: 'error', isLoading: false }));
     }
   }, [state.uploadedFile, refreshQuota]);
+
+  const loadExampleDocument = useCallback(async (exampleId: string) => {
+    setState(prev => ({
+      ...prev,
+      uploadedFile: null,
+      originalImageBase64: null,
+      processingMetadata: null,
+      processingStage: 'processing',
+      isLoading: true,
+      error: null,
+    }));
+
+    try {
+      const response = await SimpleAPIService.loadExampleDocument(exampleId);
+      if (response.success && response.data) {
+        setState(prev => ({
+          ...prev,
+          document: response.data.document,
+          documentId: response.data.document_id,
+          originalImageBase64: response.data.original_image_base64,
+          processingMetadata: response.data.processing_metadata,
+          processingStage: 'complete',
+          isLoading: false,
+        }));
+      } else {
+        setState(prev => ({ ...prev, error: response.message || 'Example could not be loaded', processingStage: 'error', isLoading: false }));
+      }
+    } catch (err) {
+      setState(prev => ({ ...prev, error: handleAPIError(err), processingStage: 'error', isLoading: false }));
+    }
+  }, []);
 
   const runCompletePipeline = useCallback(async () => {
     if (!state.documentId || !state.selectedProblemId || !state.editedLatex.trim()) {
@@ -202,6 +236,7 @@ export const useDocumentState = () => {
     // Actions to manipulate state
     actions: {
       handleFileUpload,
+      loadExampleDocument,
       processUploadedFile,
       runCompletePipeline,
       selectProblem,

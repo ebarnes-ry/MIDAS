@@ -5,6 +5,7 @@ import { FormattedMathText } from '../ui/FormattedMathText';
 interface Props {
   document: APIDocument;
   originalImageBase64: string | null;
+  processingMetadata?: Record<string, any> | null;
   selectedProblemId: string | null;
   editedLatex: string;
   editedVisualContext: string;
@@ -212,6 +213,7 @@ const EditableVisualContext: React.FC<{
 export const DocumentSelectionScreen: React.FC<Props> = ({
   document,
   originalImageBase64,
+  processingMetadata,
   selectedProblemId,
   editedLatex,
   editedVisualContext,
@@ -232,6 +234,10 @@ export const DocumentSelectionScreen: React.FC<Props> = ({
   const pipelineQuota = quota?.limits.pipeline;
   const pipelineBlocked = pipelineQuota?.remaining === 0;
   const runDisabled = !selectedProblemId || !editedLatex.trim() || isLoading || pipelineBlocked;
+  const isCachedExample = processingMetadata?.cached === true;
+  const documentSourceNote = isCachedExample
+    ? `Loaded from a precomputed example ingest${processingMetadata?.example_label ? `: ${processingMetadata.example_label}` : ''}. OCR and grouping were cached for the demo.`
+    : 'Fresh upload processed live. OCR and grouping can take several minutes for new images.';
 
   const handleRevert = () => {
     if (selectedProblem) onUpdateLatex(selectedProblem.problem_text);
@@ -296,6 +302,14 @@ export const DocumentSelectionScreen: React.FC<Props> = ({
               </div>
               <div style={{ fontSize: 14, fontStyle: 'italic', color: 'var(--ink-3)', fontFamily: "'Crimson Pro', serif", marginBottom: 24 }}>
                 Select a problem, then double-click the highlighted expression to correct any OCR errors before analysing.
+              </div>
+              <div style={{ border: `1px solid ${isCachedExample ? 'var(--verified-bd)' : 'var(--amber-bd)'}`, borderRadius: 6, background: isCachedExample ? 'var(--verified-bg)' : 'var(--amber-bg)', padding: '9px 12px', marginBottom: 16 }}>
+                <div style={{ fontSize: 9.5, fontFamily: "'JetBrains Mono', monospace", letterSpacing: '0.12em', textTransform: 'uppercase', color: isCachedExample ? 'var(--verified)' : 'var(--amber)', marginBottom: 3 }}>
+                  {isCachedExample ? 'Preloaded example' : 'Fresh upload'}
+                </div>
+                <div style={{ fontSize: 13.5, color: 'var(--ink-2)', fontFamily: "'Crimson Pro', serif", fontStyle: 'italic', lineHeight: 1.45 }}>
+                  {documentSourceNote}
+                </div>
               </div>
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>

@@ -36,6 +36,10 @@ from src.pipeline.vision.types import (
     UserSelection,
     VisionInput,
 )
+from src.pipeline.vision.preloaded_examples import (
+    available_preloaded_examples,
+    load_preloaded_example,
+)
 from src.pipeline.vision.vision import VisionPipeline
 
 from ..dependencies.session import (
@@ -211,6 +215,40 @@ def image_to_base64(image: Image.Image, format: str = "PNG") -> str:
     return base64.b64encode(buffer.getvalue()).decode("utf-8")
 
 
+def _build_document_upload_response(
+    *,
+    document_id: str,
+    ui_document: UIDocument,
+    original_image_base64: str,
+    original_image: Image.Image,
+    processing_time: float,
+    processing_metadata: dict,
+    message: str,
+    quota=None,
+) -> DocumentUploadResponse:
+    api_document = convert_ui_document_to_api_document(
+        ui_document,
+        original_image,
+    )
+
+    response = DocumentUploadResponse(
+        success=True,
+        message=message,
+        data=DocumentUploadData(
+            document_id=document_id,
+            document=api_document,
+            original_image_base64=original_image_base64,
+            processing_time=processing_time,
+            processing_metadata=processing_metadata,
+        ),
+    )
+
+    if quota is not None:
+        response.data.processing_metadata["quota"] = quota
+
+    return response
+
+
 def _normalize_uploaded_image(file_content: bytes) -> Image.Image:
     try:
         raw = Image.open(io.BytesIO(file_content))
@@ -230,6 +268,61 @@ def _normalize_uploaded_image(file_content: bytes) -> Image.Image:
         return background
 
     return raw.convert("RGB")
+
+
+@router.get("/examples")
+async def list_examples():
+    return {"examples": available_preloaded_examples()}
+
+
+@router.post("/examples/{example_id}", response_model=DocumentUploadResponse)
+@limiter.limit("30/minute")
+async def load_cached_example(
+    request: Request,
+    example_id: str,
+    session_manager: SessionManager = Depends(get_session_manager),
+):
+    try:
+        payload = load_preloaded_example(example_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Unknown example input.") from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(
+            status_code=404,
+            detail="Cached example result has not been generated yet.",
+        ) from exc
+
+    ui_document = payload["ui_document"]
+    original_image_base64 = payload["original_image_base64"]
+    processing_metadata = dict(payload.get("processing_metadata") or {})
+    processing_metadata.update(
+        {
+            "cached": True,
+            "source": "preloaded_example",
+            "example_id": example_id,
+            "example_label": payload.get("label"),
+            "filename": payload.get("file_name"),
+        }
+    )
+
+    image_data = base64.b64decode(original_image_base64)
+    original_image = Image.open(io.BytesIO(image_data)).convert("RGB")
+
+    document_id = session_manager.create_session(
+        ui_document=ui_document,
+        original_image_base64=original_image_base64,
+        processing_metadata=processing_metadata,
+    )
+
+    return _build_document_upload_response(
+        document_id=document_id,
+        ui_document=ui_document,
+        original_image_base64=original_image_base64,
+        original_image=original_image,
+        processing_time=0.0,
+        processing_metadata=processing_metadata,
+        message="Loaded precomputed example document",
+    )
 
 
 @router.post("/upload", response_model=DocumentUploadResponse)
@@ -303,14 +396,16 @@ async def upload_document(
 
         original_image_base64 = image_to_base64(original_image)
         processing_time = time.time() - start_time
-        api_document = convert_ui_document_to_api_document(
-            ui_document,
-            original_image,
-        )
 
         processing_metadata = {
             "filename": file.filename,
             "processing_time": processing_time,
+            "cached": False,
+            "source": "fresh_upload",
+            "notice": (
+                "Fresh uploads run OCR, layout analysis, and grouping live. "
+                "Processing may take several minutes."
+            ),
         }
 
         document_id = session_manager.create_session(
@@ -319,22 +414,16 @@ async def upload_document(
             processing_metadata=processing_metadata,
         )
 
-        response = DocumentUploadResponse(
-            success=True,
+        return _build_document_upload_response(
+            document_id=document_id,
+            ui_document=ui_document,
+            original_image_base64=original_image_base64,
+            original_image=original_image,
+            processing_time=processing_time,
+            processing_metadata=processing_metadata,
             message="Document processed successfully",
-            data=DocumentUploadData(
-                document_id=document_id,
-                document=api_document,
-                original_image_base64=original_image_base64,
-                processing_time=processing_time,
-                processing_metadata=processing_metadata,
-            ),
+            quota=quota,
         )
-
-        # Pydantic response_model may drop unknown fields, so expose quota through
-        # processing_metadata where the existing response schema already allows it.
-        response.data.processing_metadata["quota"] = quota
-        return response
 
     except HTTPException:
         raise
