@@ -77,7 +77,7 @@
       {
         "id": "/page/0/SectionHeader/0",
         "block_type": "SectionHeader",
-        "html": "Find the derivative of \\(f(x) = x^2 e^x\\).",
+        "html": "Find the derivative of \\(f(x) = x^2 \\cdot e^x\\).",
         "polygon": [
           91.0,
           452.0,
@@ -100,11 +100,11 @@
         },
         "images": {},
         "image_description": null,
-        "latex_content": "Find the derivative of \\(f(x) = x^2 e^x\\).",
+        "latex_content": "Find the derivative of \\(f(x) = x^2 \\cdot e^x\\).",
         "is_editable": true
       }
     ],
-    "full_page_text": "Find the derivative of \\(f(x) = x^2 e^x\\).",
+    "full_page_text": "Find the derivative of \\(f(x) = x^2 \\cdot e^x\\).",
     "images": {},
     "metadata": {
       "table_of_contents": [
@@ -173,7 +173,7 @@
     "problems": [
       {
         "problem_id": "problem_1",
-        "problem_text": "Find the derivative of \\(f(x) = x^2 e^x\\).",
+        "problem_text": "Find the derivative of \\(f(x) = x^2 \\cdot e^x\\).",
         "figure_references": [],
         "block_ids": [
           "/page/0/SectionHeader/0"

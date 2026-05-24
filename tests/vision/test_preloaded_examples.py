@@ -13,8 +13,8 @@ from src.api.routers.vision import convert_ui_document_to_api_document
 EXPECTED_PROBLEM_TEXT = {
     "definite-integral": "Evaluate the definite integral: $$\\int_0^2 \\left(3x^2 - 2x + 1\\right)\\,dx$$",
     "eigenvalues": "Find the eigenvalues of the matrix $$A = \\begin{bmatrix} 4 & 1 \\\\ 2 & 3 \\end{bmatrix}$$",
-    "integration-by-parts": "Evaluate the integral: $$\\int x\\cos(x)\\,dx$$",
-    "product-rule": "Find the derivative of \\(f(x) = x^2 e^x\\).",
+    "integration-by-parts": "Evaluate the integral: $$\\int x\\cdot \\cos(x)\\,dx$$",
+    "product-rule": "Find the derivative of \\(f(x) = x^2 \\cdot e^x\\).",
     "quadratic-with-discriminant": "Solve \\(2x^2 - 7x + 3 = 0\\).",
     "system-linear-equations": "Solve the system: $$\\begin{cases}3x + 2y = 12 \\\\ x - y = 1\\end{cases}$$",
 }
