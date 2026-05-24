@@ -139,14 +139,11 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onFileSelect, onExampleS
           )}
         </div>
 
-        {/* Example inputs */}
+        {/* Preloaded examples */}
         <div style={{ marginTop: 4, marginBottom: 14, textAlign: 'left' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12, marginBottom: 9 }}>
             <div style={{ fontSize: 10, fontFamily: "'JetBrains Mono', monospace", letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--ink-3)' }}>
-              Example inputs
-            </div>
-            <div style={{ fontSize: 11.5, fontFamily: "'Crimson Pro', serif", fontStyle: 'italic', color: 'var(--ink-3)' }}>
-              preloaded for faster demo
+              Preloaded examples
             </div>
           </div>
           <div

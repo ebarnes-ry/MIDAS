@@ -48,7 +48,7 @@
       {
         "id": "/page/0/SectionHeader/0",
         "block_type": "SectionHeader",
-        "html": "Find the eigenvalues of the matrix\n\\[\nA = \\begin{bmatrix} 4 & 1 \\\\ 2 & 3 \\end{bmatrix}\n\\]",
+        "html": "Find the eigenvalues of the matrix $$A = \\begin{bmatrix} 4 & 1 \\\\ 2 & 3 \\end{bmatrix}$$",
         "polygon": [
           96.0,
           289.5,
@@ -71,11 +71,11 @@
         },
         "images": {},
         "image_description": null,
-        "latex_content": "Find the eigenvalues of the matrix\n\\[\nA = \\begin{bmatrix} 4 & 1 \\\\ 2 & 3 \\end{bmatrix}\n\\]",
+        "latex_content": "Find the eigenvalues of the matrix $$A = \\begin{bmatrix} 4 & 1 \\\\ 2 & 3 \\end{bmatrix}$$",
         "is_editable": true
       }
     ],
-    "full_page_text": "Find the eigenvalues of the matrix\n\\[\nA = \\begin{bmatrix} 4 & 1 \\\\ 2 & 3 \\end{bmatrix}\n\\]",
+    "full_page_text": "Find the eigenvalues of the matrix $$A = \\begin{bmatrix} 4 & 1 \\\\ 2 & 3 \\end{bmatrix}$$",
     "images": {},
     "metadata": {
       "table_of_contents": [
@@ -140,7 +140,7 @@
     "problems": [
       {
         "problem_id": "problem_1",
-        "problem_text": "Find the eigenvalues of the matrix\n\\[\nA = \\begin{bmatrix} 4 & 1 \\\\ 2 & 3 \\end{bmatrix}\n\\]",
+        "problem_text": "Find the eigenvalues of the matrix $$A = \\begin{bmatrix} 4 & 1 \\\\ 2 & 3 \\end{bmatrix}$$",
         "figure_references": [],
         "block_ids": [
           "/page/0/SectionHeader/0"

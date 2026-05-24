@@ -46,7 +46,7 @@
       {
         "id": "/page/0/Equation/0",
         "block_type": "Equation",
-        "html": "Evaluate the integral:\n\\[\n\\int x \\cos(x)\\,dx\n\\]",
+        "html": "Evaluate the integral: $$\\int x\\cos(x)\\,dx$$",
         "polygon": [
           219.140625,
           364.75,
@@ -67,7 +67,7 @@
         "section_hierarchy": {},
         "images": {},
         "image_description": null,
-        "latex_content": "Evaluate the integral:\n\\[\n\\int x \\cos(x)\\,dx\n\\]",
+        "latex_content": "Evaluate the integral: $$\\int x\\cos(x)\\,dx$$",
         "is_editable": true
       },
       {
@@ -98,7 +98,7 @@
         "is_editable": false
       }
     ],
-    "full_page_text": "Evaluate the integral:\n\\[\n\\int x \\cos(x)\\,dx\n\\]",
+    "full_page_text": "Evaluate the integral: $$\\int x\\cos(x)\\,dx$$",
     "images": {},
     "metadata": {
       "table_of_contents": [],
@@ -139,7 +139,7 @@
     "problems": [
       {
         "problem_id": "problem_1",
-        "problem_text": "Evaluate the integral:\n\\[\n\\int x \\cos(x)\\,dx\n\\]",
+        "problem_text": "Evaluate the integral: $$\\int x\\cos(x)\\,dx$$",
         "figure_references": [],
         "block_ids": [
           "/page/0/Equation/0"

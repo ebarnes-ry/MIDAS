@@ -10,7 +10,7 @@ describe('FileUpload examples', () => {
   it('renders the six example inputs', () => {
     render(<FileUpload onFileSelect={jest.fn()} />);
 
-    expect(screen.getByText('Example inputs')).toBeTruthy();
+    expect(screen.getByText('Preloaded examples')).toBeTruthy();
     expect(screen.getByRole('button', { name: /definite integral/i })).toBeTruthy();
     expect(screen.getByRole('button', { name: /product rule/i })).toBeTruthy();
     expect(screen.getByRole('button', { name: /integration by parts/i })).toBeTruthy();

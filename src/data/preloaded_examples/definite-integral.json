@@ -46,7 +46,7 @@
       {
         "id": "/page/0/Picture/0",
         "block_type": "Picture",
-        "html": "Evaluate the definite integral:\n\\[\n\\int_0^2 \\left(3x^2 - 2x + 1\\right)\\,dx\n\\]",
+        "html": "Evaluate the definite integral: $$\\int_0^2 \\left(3x^2 - 2x + 1\\right)\\,dx$$",
         "polygon": [
           60.9375,
           306.0625,
@@ -67,7 +67,7 @@
         "section_hierarchy": {},
         "images": {},
         "image_description": null,
-        "latex_content": "Evaluate the definite integral:\n\\[\n\\int_0^2 \\left(3x^2 - 2x + 1\\right)\\,dx\n\\]",
+        "latex_content": "Evaluate the definite integral: $$\\int_0^2 \\left(3x^2 - 2x + 1\\right)\\,dx$$",
         "is_editable": true
       },
       {
@@ -98,7 +98,7 @@
         "is_editable": false
       }
     ],
-    "full_page_text": "Evaluate the definite integral:\n\\[\n\\int_0^2 \\left(3x^2 - 2x + 1\\right)\\,dx\n\\]",
+    "full_page_text": "Evaluate the definite integral: $$\\int_0^2 \\left(3x^2 - 2x + 1\\right)\\,dx$$",
     "images": {},
     "metadata": {
       "table_of_contents": [],
@@ -135,7 +135,7 @@
     "problems": [
       {
         "problem_id": "problem_1",
-        "problem_text": "Evaluate the definite integral:\n\\[\n\\int_0^2 \\left(3x^2 - 2x + 1\\right)\\,dx\n\\]",
+        "problem_text": "Evaluate the definite integral: $$\\int_0^2 \\left(3x^2 - 2x + 1\\right)\\,dx$$",
         "figure_references": [],
         "block_ids": [
           "/page/0/Picture/0"

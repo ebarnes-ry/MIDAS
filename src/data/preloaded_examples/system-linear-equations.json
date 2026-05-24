@@ -48,7 +48,7 @@
       {
         "id": "/page/0/SectionHeader/0",
         "block_type": "SectionHeader",
-        "html": "Solve the system:\n\\[\n\\begin{cases}\n3x + 2y = 12 \\\\\nx - y = 1\n\\end{cases}\n\\]",
+        "html": "Solve the system: $$\\begin{cases}3x + 2y = 12 \\\\ x - y = 1\\end{cases}$$",
         "polygon": [
           383.0,
           229.07470703125,
@@ -71,7 +71,7 @@
         },
         "images": {},
         "image_description": null,
-        "latex_content": "Solve the system:\n\\[\n\\begin{cases}\n3x + 2y = 12 \\\\\nx - y = 1\n\\end{cases}\n\\]",
+        "latex_content": "Solve the system: $$\\begin{cases}3x + 2y = 12 \\\\ x - y = 1\\end{cases}$$",
         "is_editable": true
       },
       {
@@ -104,7 +104,7 @@
         "is_editable": false
       }
     ],
-    "full_page_text": "Solve the system:\n\\[\n\\begin{cases}\n3x + 2y = 12 \\\\\nx - y = 1\n\\end{cases}\n\\]",
+    "full_page_text": "Solve the system: $$\\begin{cases}3x + 2y = 12 \\\\ x - y = 1\\end{cases}$$",
     "images": {},
     "metadata": {
       "table_of_contents": [
@@ -173,7 +173,7 @@
     "problems": [
       {
         "problem_id": "problem_1",
-        "problem_text": "Solve the system:\n\\[\n\\begin{cases}\n3x + 2y = 12 \\\\\nx - y = 1\n\\end{cases}\n\\]",
+        "problem_text": "Solve the system: $$\\begin{cases}3x + 2y = 12 \\\\ x - y = 1\\end{cases}$$",
         "figure_references": [],
         "block_ids": [
           "/page/0/SectionHeader/0"
