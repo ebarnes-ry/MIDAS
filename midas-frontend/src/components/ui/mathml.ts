@@ -58,12 +58,133 @@ export const ensureDelimiters = (s: string) => {
   return display ? `$$ ${t} $$` : `\\(${t}\\)`;
 };
 
+const protectDelimitedMath = (text: string): { text: string; restore: (value: string) => string } => {
+  const regions: string[] = [];
+  const protectedText = text.replace(
+    /\\\([\s\S]*?\\\)|\\\[[\s\S]*?\\\]|\$\$[\s\S]*?\$\$|\$[\s\S]*?\$/g,
+    match => {
+      const token = `@@MATH_REGION_${regions.length}@@`;
+      regions.push(match);
+      return token;
+    },
+  );
+
+  return {
+    text: protectedText,
+    restore: value => value.replace(/@@MATH_REGION_(\d+)@@/g, (_match, index) => regions[Number(index)] ?? ''),
+  };
+};
+
+const isWordChar = (ch: string | undefined): boolean => Boolean(ch && /[A-Za-z]/.test(ch));
+const isSingleLetterVariable = (word: string): boolean => /^[A-Za-z]$/.test(word);
+const isAllowedMathWord = (word: string): boolean =>
+  PROSE_WORD_ALLOWLIST.has(word.toLowerCase()) || isSingleLetterVariable(word);
+
+const hasNearbyMathSyntax = (text: string, index: number): boolean => {
+  const nearby = text.slice(index, Math.min(text.length, index + 18));
+  return /[=^_+\-*/]|\\[A-Za-z]|\{|\}/.test(nearby);
+};
+
+const isValidMathSpan = (span: string): boolean => {
+  const trimmed = span.trim();
+  if (!trimmed) return false;
+  if (/^@@MATH_REGION_\d+@@$/.test(trimmed)) return false;
+  if (!/[\\=^_+\-*/]|\d[A-Za-z]|[A-Za-z]\d/.test(trimmed)) return false;
+
+  const proseWords = (trimmed.replace(/\\[A-Za-z]+/g, ' ').match(/[A-Za-z]{2,}/g) ?? [])
+    .map(word => word.toLowerCase())
+    .filter(word => !PROSE_WORD_ALLOWLIST.has(word));
+
+  return proseWords.length === 0;
+};
+
+const findMathSpanEnd = (text: string, start: number): number => {
+  let i = start;
+
+  while (i < text.length) {
+    const ch = text[i];
+
+    if (ch === '\\') {
+      const command = text.slice(i).match(/^\\[A-Za-z]+/);
+      if (command) {
+        i += command[0].length;
+        continue;
+      }
+      i += 1;
+      continue;
+    }
+
+    if (/[0-9]/.test(ch)) {
+      i += 1;
+      continue;
+    }
+
+    if (/[{}()[\]^_=+\-*/|.,\s]/.test(ch)) {
+      i += 1;
+      continue;
+    }
+
+    if (isWordChar(ch)) {
+      const match = text.slice(i).match(/^[A-Za-z]+/);
+      const word = match?.[0] ?? ch;
+      if (isAllowedMathWord(word)) {
+        i += word.length;
+        continue;
+      }
+      break;
+    }
+
+    break;
+  }
+
+  let end = i;
+  while (end > start && /[\s,.;:?]/.test(text[end - 1])) end -= 1;
+  return end;
+};
+
+export const autoDelimitEmbeddedTeX = (text: string): string => {
+  const { text: protectedText, restore } = protectDelimitedMath(text);
+  let out = '';
+  let i = 0;
+
+  while (i < protectedText.length) {
+    const ch = protectedText[i];
+    const startsCommand = ch === '\\' && /^\\[A-Za-z]+/.test(protectedText.slice(i));
+    const previousIsWord = isWordChar(protectedText[i - 1]);
+    const startsVariableExpression =
+      !previousIsWord &&
+      isWordChar(ch) &&
+      isSingleLetterVariable(ch) &&
+      hasNearbyMathSyntax(protectedText, i);
+
+    if (!startsCommand && !startsVariableExpression) {
+      out += ch;
+      i += 1;
+      continue;
+    }
+
+    const end = findMathSpanEnd(protectedText, i);
+    const span = protectedText.slice(i, end);
+
+    if (end > i && isValidMathSpan(span)) {
+      out += `\\(${span.trim()}\\)`;
+      i = end;
+      continue;
+    }
+
+    out += ch;
+    i += 1;
+  }
+
+  return restore(out);
+};
+
 export const normalizeMathForRendering = (text: string, mathOnly = false): string => {
   const normalized = normalizeEscapedTeX(text);
   if (mathOnly || looksLikeStandaloneTeX(normalized)) {
     return ensureDelimiters(normalized);
   }
-  return normalizeDollarDelimiters(normalized);
+  return autoDelimitEmbeddedTeX(normalizeDollarDelimiters(normalized));
 };
 
 /**

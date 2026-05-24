@@ -3,6 +3,7 @@ import {
   normalizeDollarDelimiters,
   normalizeEscapedTeX,
   normalizeMathForRendering,
+  autoDelimitEmbeddedTeX,
 } from './mathml';
 
 describe('mathml helpers', () => {
@@ -37,9 +38,36 @@ describe('mathml helpers', () => {
       .toBe(String.raw`$$ \int_0^2 (3x^{2} - 2x + 1)\, dx $$`);
   });
 
-  it('does not wrap prose that contains ordinary math text', () => {
+  it('wraps embedded TeX commands inside prose', () => {
+    const input = String.raw`Problem: If \sum_{n=0}^\infty \cos^{2n}\theta = 5, what is \cos 2\theta?`;
+
+    expect(normalizeMathForRendering(input))
+      .toBe(String.raw`Problem: If \(\sum_{n=0}^\infty \cos^{2n}\theta = 5\), what is \(\cos 2\theta\)?`);
+  });
+
+  it('wraps embedded algebra expressions inside prose', () => {
+    const input = String.raw`Problem: The equation x^{2} + 2x = i has two complex solutions.`;
+
+    expect(normalizeMathForRendering(input))
+      .toBe(String.raw`Problem: The equation \(x^{2} + 2x = i\) has two complex solutions.`);
+  });
+
+  it('wraps simple inline equations inside prose', () => {
     const input = 'Solve x + 1 = 2.';
 
+    expect(normalizeMathForRendering(input)).toBe(String.raw`Solve \(x + 1 = 2\).`);
+  });
+
+  it('does not wrap plain prose without math syntax', () => {
+    const input = 'Select a problem above.';
+
     expect(normalizeMathForRendering(input)).toBe(input);
+  });
+
+  it('preserves existing delimiters when adding embedded raw TeX delimiters', () => {
+    const input = String.raw`If \(x=1\), compute \cos \theta.`;
+
+    expect(autoDelimitEmbeddedTeX(input))
+      .toBe(String.raw`If \(x=1\), compute \(\cos \theta\).`);
   });
 });

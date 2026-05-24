@@ -54,11 +54,11 @@ export const FormattedMathText: React.FC<FormattedMathTextProps> = ({
         80,
       );
 
-      // Display-math-only line
-      const isDisplayMath =
-        trimmed.startsWith('$$') && trimmed.endsWith('$$') && trimmed.length > 4;
-
       const normalized = normalizeMathForRendering(trimmed);
+      const normalizedTrimmed = normalized.trim();
+      const isDisplayMath =
+        (normalizedTrimmed.startsWith('$$') && normalizedTrimmed.endsWith('$$') && normalizedTrimmed.length > 4) ||
+        (normalizedTrimmed.startsWith('\\[') && normalizedTrimmed.endsWith('\\]') && normalizedTrimmed.length > 4);
       const encoded = looksLikeHTML(normalized)
         ? sanitizeHTML(normalized)
         : encodeForDOM(normalized);
