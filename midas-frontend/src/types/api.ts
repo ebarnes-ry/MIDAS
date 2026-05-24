@@ -27,6 +27,10 @@ export interface APIProblem {
   visual_context_attached?: boolean;
   visual_context_summary?: string | null;
   visual_context_description_count?: number;
+  problem_input_complete?: boolean;
+  missing_problem_content?: boolean;
+  missing_content_reason?: string | null;
+  extraction_recovery_source?: string | null;
 }
 
 export interface APIDocument {

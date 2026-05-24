@@ -8,7 +8,17 @@ from typing import Dict, Union, Optional, List, Tuple
 from pathlib import Path
 from PIL import Image
 from difflib import SequenceMatcher
+from pydantic import BaseModel, ConfigDict, Field
 import re
+
+class ImageProblemRecovery(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    recovered_problem_text: str = Field(
+        ...,
+        description="The complete mathematical problem text transcribed from the image, including required equations, matrices, integrals, or expressions.",
+    )
+    confidence: float = Field(..., ge=0.0, le=1.0)
 
 class VisionPipeline:
     def __init__(self, manager: ModelManager):
@@ -36,20 +46,25 @@ class VisionPipeline:
             # Append recovered math text to full_page_text so the grouper can see it.
             ui_document.full_page_text = (ui_document.full_page_text + "\n\n" + recovered).strip()
 
-        # Step 4: Grouper identifies distinct problems from structured blocks.
-        problems = self.grouper.group_document(ui_document)
-        
-        # Step 4: Link the found problems back to the original blocks for UI highlighting
-        #ui_document.problems = self._link_problems_to_blocks(problems, ui_document)
-        problems_with_blocks = self._link_problems_to_blocks(problems, ui_document)
-        problems_with_blocks = self._repair_problem_assembly(problems_with_blocks, ui_document)
-        problems_with_blocks = self._repair_problem_text_from_linked_blocks(problems_with_blocks, ui_document)
-        problems_with_blocks = self._reclassify_problem_types(problems_with_blocks, ui_document)
+        problems_with_blocks = self._assemble_problems(ui_document)
+        problems_with_blocks = self._recover_incomplete_problem_text_from_image(
+            problems_with_blocks,
+            ui_document,
+            vision_input.file_path,
+        )
 
         # Step 5: Explicitly associate figure descriptions with the problems.
         ui_document.problems = self._associate_descriptions_to_problems(problems_with_blocks, ui_document)
         
         return ui_document
+
+    def _assemble_problems(self, ui_document: UIDocument) -> List[Problem]:
+        problems = self.grouper.group_document(ui_document)
+        problems_with_blocks = self._link_problems_to_blocks(problems, ui_document)
+        problems_with_blocks = self._repair_problem_assembly(problems_with_blocks, ui_document)
+        problems_with_blocks = self._repair_problem_text_from_linked_blocks(problems_with_blocks, ui_document)
+        problems_with_blocks = self._reclassify_problem_types(problems_with_blocks, ui_document)
+        return self._annotate_problem_completeness(problems_with_blocks)
 
     def _recover_image_block_text(self, doc: UIDocument) -> str:
         """
@@ -258,6 +273,161 @@ class VisionPipeline:
                 self._linked_block_latex(problem, document),
             )
         return problems
+
+    def _problem_missing_content_reason(self, problem: Problem) -> Optional[str]:
+        text = (problem.problem_text or "").strip()
+        normalized = self._normalize_text(text)
+        if not normalized:
+            return "empty_problem_text"
+
+        has_matrix_context = any(
+            marker in normalized
+            for marker in ("matrix", "matrices", "eigenvalue", "eigenvalues", "determinant")
+        )
+        has_matrix_content = bool(
+            re.search(r"\\begin\{[bpv]?matrix\}", text)
+            or re.search(r"\\begin\{array\}", text)
+            or re.search(r"\[\s*[-\d\\&\s]+\s*\\\\\s*[-\d\\&\s]+\]", text)
+        )
+        if has_matrix_context and not has_matrix_content:
+            return "instruction_without_matrix"
+
+        has_system_instruction = "solve the system" in normalized or normalized.startswith("system")
+        has_system_content = (
+            "\\begin{cases}" in text
+            or "\\begin{aligned}" in text
+            or "\\begin{align}" in text
+            or text.count("=") >= 2
+        )
+        if has_system_instruction and not has_system_content:
+            return "instruction_without_equations"
+
+        has_evaluate_instruction = normalized.startswith("evaluate")
+        has_calculus_content = any(marker in text for marker in ("\\int", "∫", "\\lim", "\\frac{d", "="))
+        if has_evaluate_instruction and not has_calculus_content:
+            return "instruction_without_expression"
+
+        return None
+
+    def _looks_like_bare_single_equation(self, problem: Problem) -> bool:
+        text = (problem.problem_text or "").strip()
+        normalized = self._normalize_text(text)
+        if not text or not normalized:
+            return False
+        instruction_words = (
+            "solve",
+            "find",
+            "evaluate",
+            "determine",
+            "calculate",
+            "simplify",
+            "factor",
+            "differentiate",
+            "integrate",
+            "prove",
+            "show",
+        )
+        if any(word in normalized.split() for word in instruction_words):
+            return False
+        return text.count("=") == 1 and len(normalized.split()) <= 6
+
+    def _annotate_problem_completeness(self, problems: List[Problem]) -> List[Problem]:
+        for problem in problems:
+            reason = self._problem_missing_content_reason(problem)
+            problem.problem_input_complete = reason is None
+            problem.missing_problem_content = reason is not None
+            problem.missing_content_reason = reason
+        return problems
+
+    def _needs_image_text_recovery(self, problems: List[Problem]) -> bool:
+        if any(self._problem_missing_content_reason(problem) for problem in problems):
+            return True
+        return len(problems) == 1 and self._looks_like_bare_single_equation(problems[0])
+
+    def _recovered_text_is_better(self, current_text: str, recovered_text: str) -> bool:
+        normalized_current = self._normalize_text(current_text)
+        normalized_recovered = self._normalize_text(recovered_text)
+        if not normalized_recovered or normalized_recovered == normalized_current:
+            return False
+        if len(normalized_recovered) <= len(normalized_current) + 4:
+            return False
+
+        has_current = normalized_current and normalized_current in normalized_recovered
+        adds_structural_math = self._has_important_math_missing_from_problem(recovered_text, current_text)
+        adds_instruction = any(
+            word in normalized_recovered and word not in normalized_current
+            for word in ("solve", "system", "find", "evaluate", "matrix", "eigenvalues")
+        )
+        return has_current or adds_structural_math or adds_instruction
+
+    def _recover_problem_text_from_source_image(self, image_path: str, current_text: str) -> Optional[str]:
+        prompt = (
+            "Transcribe the complete mathematical problem from the image. "
+            "Include the instruction words and all required equations, matrices, integrals, expressions, choices, or givens. "
+            "Use LaTeX for mathematical notation, including matrix and cases environments when appropriate. "
+            "Do not include worked solution text or answer text if it is clearly separate from the question. "
+            "If the current extracted text below is incomplete, correct it using the image. "
+            "Return only the complete problem statement in recovered_problem_text.\n\n"
+            f"CURRENT EXTRACTED TEXT:\n{current_text or '[empty]'}"
+        )
+        try:
+            with Image.open(image_path) as image:
+                response = self.model_manager.call(
+                    task="validation",
+                    prompt_ref="vision/validate@v1",
+                    variables={},
+                    messages_override=[
+                        {
+                            "role": "system",
+                            "content": "You are a precise math OCR recovery agent. Transcribe only the problem statement visible in the image.",
+                        },
+                        {"role": "user", "content": prompt},
+                    ],
+                    schema=ImageProblemRecovery,
+                    images=[image.convert("RGB")],
+                    temperature=0,
+                    max_tokens=700,
+                )
+        except Exception as e:
+            print(f"[vision] source-image text recovery skipped: {e}")
+            return None
+
+        if not response.parsed:
+            return None
+        recovered = response.parsed.recovered_problem_text.strip()
+        if response.parsed.confidence < 0.55:
+            return None
+        return recovered or None
+
+    def _recover_incomplete_problem_text_from_image(
+        self,
+        problems: List[Problem],
+        document: UIDocument,
+        image_path: str,
+    ) -> List[Problem]:
+        if not problems or not self._needs_image_text_recovery(problems):
+            return self._annotate_problem_completeness(problems)
+
+        # Whole-image recovery is intentionally limited to the single-problem
+        # case. For multi-problem pages, replacing one grouped problem with a
+        # full-page transcription could mix unrelated problems.
+        if len(problems) != 1:
+            return self._annotate_problem_completeness(problems)
+
+        problem = problems[0]
+        recovered_text = self._recover_problem_text_from_source_image(
+            image_path,
+            problem.problem_text,
+        )
+        if recovered_text and self._recovered_text_is_better(problem.problem_text, recovered_text):
+            problem.problem_text = recovered_text
+            problem.extraction_recovery_source = "source_image_ocr"
+            problem.problem_type = self.grouper._classify_problem_type(
+                problem.problem_text,
+                self._linked_block_latex(problem, document),
+            )
+
+        return self._annotate_problem_completeness(problems)
 
     def _is_math_like_block(self, block) -> bool:
         block_type = block.block_type.lower()
@@ -611,6 +781,10 @@ class VisionPipeline:
                 "visual_context_source": visual_context_source,
                 "visual_context_user_modified": visual_context_override is not None,
                 "visual_context_user_removed": remove_visual_context,
+                "problem_input_complete": selected_problem.problem_input_complete,
+                "missing_problem_content": selected_problem.missing_problem_content,
+                "missing_content_reason": selected_problem.missing_content_reason,
+                "extraction_recovery_source": selected_problem.extraction_recovery_source,
                 "visual_context_missing_reason": (
                     "user_removed"
                     if remove_visual_context

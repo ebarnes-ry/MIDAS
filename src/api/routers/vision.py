@@ -144,6 +144,10 @@ def convert_ui_document_to_api_document(ui_document: UIDocument, original_image:
             visual_context_attached=bool(p.referenced_figure_descriptions),
             visual_context_summary="\n\n".join(p.referenced_figure_descriptions) if p.referenced_figure_descriptions else None,
             visual_context_description_count=len(p.referenced_figure_descriptions),
+            problem_input_complete=p.problem_input_complete,
+            missing_problem_content=p.missing_problem_content,
+            missing_content_reason=p.missing_content_reason,
+            extraction_recovery_source=p.extraction_recovery_source,
         ) for p in ui_document.problems
     ]
 

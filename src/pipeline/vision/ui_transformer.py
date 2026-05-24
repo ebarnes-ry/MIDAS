@@ -1,5 +1,5 @@
 from typing import List, Tuple
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, NavigableString
 from .types import UIBlock, UIDocument
 
 from .types import UIBlock, UIDocument
@@ -37,22 +37,34 @@ class UITransformer:
     
     @staticmethod
     def _clean_html(html: str) -> str:
-        html = html.replace("\\", "\\\\")
-        html = html.replace("</p>", "\n")
+        if not html:
+            return ""
 
-        html = re.sub(r'<br\s*/?>', '\n', html, flags=re.IGNORECASE)
+        soup = BeautifulSoup(html, 'html.parser')
 
-        # replace <math ...>...</math> with $...$
-        html = re.sub(
-            r'<math\b[^>]*>([\s\S]*?)<\/math>',
-            lambda m: f"${m.group(1).strip()}$",
-            html,
-            flags=re.IGNORECASE
-        )
+        for br in soup.find_all("br"):
+            br.replace_with(NavigableString("\n"))
 
-        # delete other html tags
-        html = re.sub(r'<[^>]+>', '', html)
-        return html.strip()
+        for math_tag in soup.find_all("math"):
+            tex = math_tag.get_text().strip()
+            if not tex:
+                math_tag.decompose()
+                continue
+            if math_tag.get("display") == "block":
+                replacement = f"\n$${tex}$$\n"
+            else:
+                replacement = f"${tex}$"
+            math_tag.replace_with(NavigableString(replacement))
+
+        for block_tag in soup.find_all(["p", "div", "li"]):
+            if block_tag.contents and not str(block_tag.contents[-1]).endswith("\n"):
+                block_tag.append(NavigableString("\n"))
+
+        text = soup.get_text()
+        text = re.sub(r"[ \t]+\n", "\n", text)
+        text = re.sub(r"\n{3,}", "\n\n", text)
+        text = re.sub(r"[ \t]{2,}", " ", text)
+        return text.strip()
 
     @staticmethod
     def _collect_blocks(json_blocks: List, output_list: List[Tuple[UIBlock, str]]):
@@ -65,9 +77,6 @@ class UITransformer:
             # soup = BeautifulSoup(html_content, 'html.parser')
             # raw_text_content = (soup.get_text().strip() or None)
             html_content = getattr(json_block, 'html', '')
-            print("\n\n\n\n\n\n\n\n\n\n\n")
-            print("HTML CONTENT LOOKS LIKE")
-            print(html_content)
 
             soup = BeautifulSoup(html_content, 'html.parser')
             block_type_str = str(json_block.block_type).lower()
@@ -76,11 +85,6 @@ class UITransformer:
             # This is the ground truth for what's in the block.
             # raw_text_content = soup.get_text().strip() or None
             raw_text_content = UITransformer._clean_html(html_content)
-            if raw_text_content:
-                # Escape all backslashes to prevent misinterpretation of sequences like '\b'.
-                # This ensures the raw text is safe for all downstream processing.
-                #raw_text_content = raw_text_content.replace('\\', '\\\\')
-                print("")
             
             # 1. Extract Image Description
             image_description = None
@@ -94,13 +98,7 @@ class UITransformer:
                     desc_tag.decompose()
 
             # 2. Extract clean LaTeX Content (without the description)
-            print("THE SOUP LOOKS LIKE: ")
-            print(soup.get_text())
-            latex_content = soup.get_text().strip() or None
-            if latex_content:
-                # Also escape backslashes in the clean content for consistency.
-                #latex_content = latex_content.replace('\\', '\\\\')
-                print("")
+            latex_content = UITransformer._clean_html(str(soup)) or None
 
             # 3. Determine if Editable
             is_editable = False

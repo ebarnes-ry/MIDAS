@@ -72,6 +72,10 @@ class APIProblem(BaseModel):
     visual_context_attached: bool = False
     visual_context_summary: Optional[str] = None
     visual_context_description_count: int = 0
+    problem_input_complete: bool = True
+    missing_problem_content: bool = False
+    missing_content_reason: Optional[str] = None
+    extraction_recovery_source: Optional[str] = None
 
 class APIDocument(BaseModel):
     blocks: List[APIBlock]

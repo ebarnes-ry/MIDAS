@@ -35,6 +35,10 @@ class Problem:
     block_ids: List[str] = field(default_factory=list)
     referenced_figure_descriptions: List[str] = field(default_factory=list)
     problem_type: ProblemType = ProblemType.OTHER
+    problem_input_complete: bool = True
+    missing_problem_content: bool = False
+    missing_content_reason: Optional[str] = None
+    extraction_recovery_source: Optional[str] = None
 
 @dataclass
 class UIBlock:

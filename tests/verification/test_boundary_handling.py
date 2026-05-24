@@ -8,6 +8,7 @@ from src.pipeline.verification.verification import VerificationPipeline
 from src.pipeline.verification.verification_types import CodeExecutionResult
 from src.pipeline.vision.types import Problem, ProblemType, UIDocument, UIBlock, UserSelection
 from src.pipeline.vision.vision import VisionPipeline
+from src.pipeline.vision.ui_transformer import UITransformer
 from src.api.routers.vision import convert_ui_document_to_api_document
 from src.pipeline.vision.grouper import SemanticGrouper
 
@@ -334,6 +335,114 @@ def test_problem_text_is_repaired_from_richer_linked_matrix_block():
     repaired = pipeline._repair_problem_text_from_linked_blocks([problem], document)
 
     assert repaired[0].problem_text == document.blocks[0].latex_content
+
+
+def test_incomplete_matrix_problem_is_recovered_from_source_image():
+    pipeline = VisionPipeline.__new__(VisionPipeline)
+    pipeline.grouper = SemanticGrouper.__new__(SemanticGrouper)
+    pipeline._recover_problem_text_from_source_image = Mock(
+        return_value=r"Find the eigenvalues of the matrix A = \begin{bmatrix}4 & 1 \\ 2 & 3\end{bmatrix}"
+    )
+    problem = Problem(
+        problem_id="problem_1",
+        problem_text="Find the eigenvalues of the matrix",
+        block_ids=["stem"],
+        problem_type=ProblemType.LINEAR_ALGEBRA,
+    )
+    document = UIDocument(
+        blocks=[
+            UIBlock(
+                id="stem",
+                block_type="SectionHeader",
+                html="",
+                polygon=[],
+                bbox=[0, 0, 10, 10],
+                children=[],
+                section_hierarchy={},
+                latex_content="Find the eigenvalues of the matrix",
+                is_editable=True,
+            )
+        ],
+        full_page_text="Find the eigenvalues of the matrix",
+        images={},
+        metadata={},
+        dimensions=(10, 10),
+        problems=[problem],
+    )
+
+    recovered = pipeline._recover_incomplete_problem_text_from_image([problem], document, "unused.png")
+
+    assert recovered[0].problem_text == r"Find the eigenvalues of the matrix A = \begin{bmatrix}4 & 1 \\ 2 & 3\end{bmatrix}"
+    assert recovered[0].problem_input_complete is True
+    assert recovered[0].missing_problem_content is False
+    assert recovered[0].extraction_recovery_source == "source_image_ocr"
+    assert recovered[0].problem_type == ProblemType.LINEAR_ALGEBRA
+
+
+def test_bare_single_equation_can_be_recovered_as_complete_system():
+    pipeline = VisionPipeline.__new__(VisionPipeline)
+    pipeline.grouper = SemanticGrouper.__new__(SemanticGrouper)
+    pipeline._recover_problem_text_from_source_image = Mock(
+        return_value=r"Solve the system: \begin{cases} 3x + 2y = 12 \\ x - y = 1 \end{cases}"
+    )
+    problem = Problem(
+        problem_id="problem_1",
+        problem_text="x - y = 1",
+        block_ids=["eq_2"],
+        problem_type=ProblemType.ALGEBRA,
+    )
+    document = UIDocument(
+        blocks=[
+            UIBlock(
+                id="eq_2",
+                block_type="Equation",
+                html="",
+                polygon=[],
+                bbox=[0, 0, 10, 10],
+                children=[],
+                section_hierarchy={},
+                latex_content="x - y = 1",
+                is_editable=True,
+            )
+        ],
+        full_page_text="x - y = 1",
+        images={},
+        metadata={},
+        dimensions=(10, 10),
+        problems=[problem],
+    )
+
+    recovered = pipeline._recover_incomplete_problem_text_from_image([problem], document, "unused.png")
+
+    assert recovered[0].problem_text == r"Solve the system: \begin{cases} 3x + 2y = 12 \\ x - y = 1 \end{cases}"
+    assert recovered[0].problem_input_complete is True
+    assert recovered[0].missing_problem_content is False
+    assert recovered[0].extraction_recovery_source == "source_image_ocr"
+
+
+def test_complete_single_equation_is_not_marked_incomplete_without_recovery():
+    pipeline = VisionPipeline.__new__(VisionPipeline)
+    problem = Problem(
+        problem_id="problem_1",
+        problem_text="x - y = 1",
+        problem_type=ProblemType.ALGEBRA,
+    )
+
+    annotated = pipeline._annotate_problem_completeness([problem])
+
+    assert annotated[0].problem_input_complete is True
+    assert annotated[0].missing_problem_content is False
+
+
+def test_transformer_preserves_boundaries_between_adjacent_display_math():
+    html = '<p>Solve the system:</p><math display="block">3x + 2y = 12</math><math display="block">x - y = 1</math>'
+
+    text = UITransformer._clean_html(html)
+
+    assert "Solve the system:" in text
+    assert "$$3x + 2y = 12$$" in text
+    assert "$$x - y = 1$$" in text
+    assert "12x" not in text
 
 
 def test_instruction_stem_merge_stops_before_non_math_block():
