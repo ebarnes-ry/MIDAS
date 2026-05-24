@@ -15,14 +15,16 @@ from src.models.manager import ModelManager
 
 
 # ── CORS origins ─────────────────────────────────────────────────────────────
-ALLOWED_ORIGINS = [
-    "http://localhost:3000",
-    "http://localhost:4321",               # Astro portfolio dev
-    "https://emmabarnes.xyz",
-    "https://www.emmabarnes.xyz",
-    "https://midas-fawn-theta.vercel.app",
-    "https://midas-frontend.vercel.app",
-]
+def _parse_allowed_origins() -> list[str]:
+    raw = os.getenv("ALLOWED_ORIGINS", "")
+    origins = [o.strip() for o in raw.split(",") if o.strip()]
+    return origins or [
+        "http://localhost:3000",
+        "http://localhost:4321",
+    ]
+
+
+ALLOWED_ORIGINS = _parse_allowed_origins()
 
 app_state = {}
 

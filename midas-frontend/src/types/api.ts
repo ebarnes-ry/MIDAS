@@ -65,7 +65,6 @@ export interface DocumentUploadResponse {
   success: boolean;
   message: string;
   timestamp: string;
-  quota?: QuotaBucket;
   data: {
     document_id: string;
     document: APIDocument;

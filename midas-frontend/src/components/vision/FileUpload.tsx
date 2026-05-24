@@ -51,8 +51,12 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onFileSelect, isLoading 
   const interactionDisabled = isLoading || uploadBlocked;
 
   const onDrop = useCallback((acceptedFiles: File[]) => {
+    if (uploadBlocked) {
+      setExampleError('Upload limit reached for today.');
+      return;
+    }
     if (acceptedFiles.length > 0) onFileSelect(acceptedFiles[0]);
-  }, [onFileSelect]);
+  }, [onFileSelect, uploadBlocked]);
 
   const handleExampleClick = useCallback(async (example: typeof EXAMPLE_INPUTS[number]) => {
     if (interactionDisabled || selectedExample) return;
