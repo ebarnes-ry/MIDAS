@@ -156,6 +156,9 @@ data/
 *.json
 *.xml
 *.parquet
+# Deployment config — keep tracked despite *.json rule above
+!railway.json
+!midas-frontend/vercel.json
 *.feather
 *.pickle
 

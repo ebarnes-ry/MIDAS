@@ -1,5 +1,6 @@
 import React, { useCallback } from 'react';
 import { useDropzone } from 'react-dropzone';
+import { QuotaStatus } from '../../types/api';
 
 const EXAMPLE_INPUTS = [
   {
@@ -38,18 +39,23 @@ interface FileUploadProps {
   onFileSelect: (file: File) => void;
   isLoading?: boolean;
   error?: string | null;
+  quota?: QuotaStatus | null;
 }
 
-export const FileUpload: React.FC<FileUploadProps> = ({ onFileSelect, isLoading = false, error }) => {
+export const FileUpload: React.FC<FileUploadProps> = ({ onFileSelect, isLoading = false, error, quota }) => {
   const [selectedExample, setSelectedExample] = React.useState<string | null>(null);
   const [exampleError, setExampleError] = React.useState<string | null>(null);
+
+  const uploadQuota = quota?.limits.upload;
+  const uploadBlocked = uploadQuota?.remaining === 0;
+  const interactionDisabled = isLoading || uploadBlocked;
 
   const onDrop = useCallback((acceptedFiles: File[]) => {
     if (acceptedFiles.length > 0) onFileSelect(acceptedFiles[0]);
   }, [onFileSelect]);
 
   const handleExampleClick = useCallback(async (example: typeof EXAMPLE_INPUTS[number]) => {
-    if (isLoading || selectedExample) return;
+    if (interactionDisabled || selectedExample) return;
 
     setSelectedExample(example.fileName);
     setExampleError(null);
@@ -74,13 +80,13 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onFileSelect, isLoading 
       setExampleError(message);
       setSelectedExample(null);
     }
-  }, [isLoading, onFileSelect, selectedExample]);
+  }, [interactionDisabled, onFileSelect, selectedExample]);
 
   const { getRootProps, getInputProps, isDragActive, isDragReject } = useDropzone({
     onDrop,
-    accept: { 'image/*': ['.png', '.jpg', '.jpeg', '.webp'], 'application/pdf': ['.pdf'] },
+    accept: { 'image/png': ['.png'], 'image/jpeg': ['.jpg', '.jpeg'] },
     multiple: false,
-    disabled: isLoading,
+    disabled: interactionDisabled,
   });
 
   return (
@@ -97,6 +103,13 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onFileSelect, isLoading 
           Upload a problem — MIDAS will solve, verify, and explain it step by step.
         </div>
 
+        {/* Quota display */}
+        {uploadQuota && (
+          <div style={{ marginBottom: 14, fontSize: 12.5, fontFamily: "'JetBrains Mono', monospace", color: uploadBlocked ? 'var(--failed)' : 'var(--ink-3)' }}>
+            Uploads remaining today: {uploadQuota.remaining} / {uploadQuota.limit}
+          </div>
+        )}
+
         {/* Dropzone */}
         <div
           {...getRootProps()}
@@ -105,10 +118,10 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onFileSelect, isLoading 
             borderRadius: 8,
             padding: '52px 32px 44px',
             background: isDragActive && !isDragReject ? 'var(--accent-lt)' : isDragReject ? 'var(--failed-bg)' : 'var(--parchment)',
-            cursor: isLoading ? 'not-allowed' : 'pointer',
+            cursor: interactionDisabled ? 'not-allowed' : 'pointer',
             transition: 'border-color 0.2s, background 0.2s',
             marginBottom: 28,
-            opacity: isLoading ? 0.6 : 1,
+            opacity: interactionDisabled ? 0.6 : 1,
           }}
         >
           <input {...getInputProps()} />
@@ -116,10 +129,10 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onFileSelect, isLoading 
             {isLoading ? '◌' : '⟁'}
           </div>
           <div style={{ fontSize: 18, color: 'var(--ink)', marginBottom: 6, fontFamily: "'EB Garamond', Georgia, serif" }}>
-            {isLoading ? 'Processing document…' : isDragActive && !isDragReject ? 'Drop here…' : isDragReject ? 'PDF or image files only' : 'Drop a problem set or photograph here'}
+            {isLoading ? 'Processing document…' : uploadBlocked ? 'Upload limit reached for today' : isDragActive && !isDragReject ? 'Drop here…' : isDragReject ? 'PNG or JPG files only' : 'Drop a problem set or photograph here'}
           </div>
           <div style={{ fontSize: 12.5, fontFamily: "'JetBrains Mono', monospace", color: 'var(--ink-3)' }}>
-            PDF · PNG · JPG · up to 20 MB
+            PNG · JPG · up to 8 MB
           </div>
         </div>
 
@@ -139,7 +152,7 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onFileSelect, isLoading 
           >
             {EXAMPLE_INPUTS.map((example) => {
               const isSelecting = selectedExample === example.fileName;
-              const disabled = isLoading || Boolean(selectedExample);
+              const disabled = interactionDisabled || Boolean(selectedExample);
               return (
                 <button
                   key={example.fileName}
@@ -153,7 +166,7 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onFileSelect, isLoading 
                     borderRadius: 6,
                     background: 'var(--cream)',
                     padding: 0,
-                    cursor: disabled ? 'wait' : 'pointer',
+                    cursor: disabled ? (uploadBlocked ? 'not-allowed' : 'wait') : 'pointer',
                     overflow: 'hidden',
                     opacity: disabled && !isSelecting ? 0.58 : 1,
                     textAlign: 'left',

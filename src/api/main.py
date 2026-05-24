@@ -1,18 +1,18 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from slowapi import Limiter, _rate_limit_exceeded_handler
-from slowapi.util import get_remote_address
+from slowapi import _rate_limit_exceeded_handler
+from src.api.limiting import limiter
 from slowapi.errors import RateLimitExceeded
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 import os
 
-from .routers import vision, health, reasoning, codegen, verification, trajectories
+from .routers import vision, health, reasoning, codegen, verification, trajectories, demo
 from src.config.profiles import resolve_config_path, validate_config_environment
 from src.models.manager import ModelManager
 
 # ── Rate limiter (shared across the app) ─────────────────────────────────────
-limiter = Limiter(key_func=get_remote_address)
+
 
 # ── CORS origins ─────────────────────────────────────────────────────────────
 ALLOWED_ORIGINS = [
@@ -88,6 +88,7 @@ def create_app() -> FastAPI:
     app.include_router(codegen.router, prefix="/api/v1/codegen", tags=["codegen"])
     app.include_router(verification.router, prefix="/api/v1/verification", tags=["verification"])
     app.include_router(trajectories.router, prefix="/api/v1/trajectories", tags=["trajectories"])
+    app.include_router(demo.router, prefix="/api/v1/demo", tags=["demo"])
 
     @app.get("/")
     async def root():

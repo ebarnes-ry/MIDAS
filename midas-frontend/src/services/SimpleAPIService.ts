@@ -8,11 +8,25 @@ import {
   ReasoningExplainResponse,
   FeedbackRequest,
   FeedbackResponse,
-  HealthStatus
+  HealthStatus,
+  QuotaStatus,
 } from '../types/api';
 
 const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:8000';
 const DEFAULT_TIMEOUT = 300000; // 5 minutes
+
+const CLIENT_ID_KEY = 'midas_client_id';
+
+function getClientId(): string {
+  let id = localStorage.getItem(CLIENT_ID_KEY);
+
+  if (!id) {
+    id = crypto.randomUUID();
+    localStorage.setItem(CLIENT_ID_KEY, id);
+  }
+
+  return id;
+}
 
 export const handleAPIError = (error: any): string => {
   if (error instanceof Error && error.name === 'AbortError') {
@@ -30,28 +44,47 @@ export class SimpleAPIService {
    * You had duplicated timeout and error handling code. That's a sign of bad design.
    * This one private method now handles it for all API calls. Don't Repeat Yourself.
    */
-  private static async _fetchWithTimeout(url: string, options: RequestInit, timeout: number = DEFAULT_TIMEOUT): Promise<Response> {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), timeout);
+  private static async _fetchWithTimeout(url: string, options: RequestInit, timeout: number = DEFAULT_TIMEOUT): 
+    Promise<Response> {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), timeout);
 
-    try {
-      const response = await fetch(url, {
-        ...options,
-        signal: controller.signal,
-      });
-      clearTimeout(timeoutId);
+      const headers = new Headers(options.headers || {});
+      headers.set('X-MIDAS-Client-ID', getClientId());
 
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.detail || `HTTP ${response.status}: ${response.statusText}`);
+      try {
+        const response = await fetch(url, {
+          ...options,
+          headers,
+          signal: controller.signal,
+        });
+
+        clearTimeout(timeoutId);
+
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          const detail = errorData.detail;
+
+          if (response.status === 429 && detail?.error === 'quota_exceeded') {
+            throw new Error(
+              `Demo limit reached: ${detail.used}/${detail.limit} ${detail.kind} runs used today.`
+            );
+          }
+
+          throw new Error(
+            typeof detail === 'string'
+              ? detail
+              : detail?.error || detail?.message || `HTTP ${response.status}: ${response.statusText}`
+          );
+        }
+
+        return response;
+      } catch (error) {
+        clearTimeout(timeoutId);
+        console.error('API Service Error:', error);
+        throw error;
       }
-      return response;
-    } catch (error) {
-      clearTimeout(timeoutId);
-      console.error('API Service Error:', error);
-      throw error;
     }
-  }
 
   static async uploadDocument(file: File): Promise<DocumentUploadResponse> {
     const formData = new FormData();
@@ -89,6 +122,15 @@ export class SimpleAPIService {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(request),
     }, 60000);
+    return response.json();
+  }
+
+  static async getQuota(): Promise<QuotaStatus> {
+    const response = await this._fetchWithTimeout(
+      `${API_BASE}/api/v1/demo/quota`,
+      { method: 'GET' },
+      5000
+    );
     return response.json();
   }
 

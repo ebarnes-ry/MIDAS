@@ -1,9 +1,8 @@
 // midas-frontend/src/hooks/useDocumentState.ts
 
-import { useState, useCallback, useMemo } from 'react';
-import { DocumentState } from '../types/api';
+import { useState, useCallback, useMemo, useEffect } from 'react';
+import { DocumentState, QuotaStatus, CompletePipelineResponse } from '../types/api';
 import { SimpleAPIService, handleAPIError } from '../services/SimpleAPIService';
-import { CompletePipelineResponse } from '../types/api';
 
 const initialState: DocumentState = {
   document: null,
@@ -17,7 +16,8 @@ const initialState: DocumentState = {
   error: null,
   processingStage: 'idle',
   uploadedFile: null,
-  completePipelineResult: null, // Added to state to hold the final result
+  completePipelineResult: null,
+  quota: null,
 };
 
 /**
@@ -28,6 +28,21 @@ const initialState: DocumentState = {
  */
 export const useDocumentState = () => {
   const [state, setState] = useState<DocumentState>(initialState);
+
+  const refreshQuota = useCallback(async (): Promise<QuotaStatus | null> => {
+    try {
+      const quota = await SimpleAPIService.getQuota();
+      setState(prev => ({ ...prev, quota }));
+      return quota;
+    } catch (err) {
+      console.warn('Failed to refresh quota:', err);
+      return null;
+    }
+  }, []);
+
+  useEffect(() => {
+    refreshQuota();
+  }, [refreshQuota]);
 
   // --- ACTIONS ---
   // These functions encapsulate the logic that was previously in FullVisionPipeline.
@@ -53,30 +68,31 @@ export const useDocumentState = () => {
 
   const processUploadedFile = useCallback(async () => {
     if (!state.uploadedFile) return;
-    
+
     setState(prev => ({ ...prev, processingStage: 'validating', isLoading: true, error: null }));
-    
+
     try {
       const response = await SimpleAPIService.uploadDocument(state.uploadedFile);
       if (response.success && response.data) {
+        await refreshQuota();
         setState(prev => ({
           ...prev,
           document: response.data.document,
           documentId: response.data.document_id,
-          // The base64 is already set, but we could re-sync from response if needed
-          // originalImageBase64: response.data.original_image_base64,
           processingStage: 'complete',
           isLoading: false,
         }));
       } else {
         console.log("SCREAM 1");
+        await refreshQuota();
         setState(prev => ({ ...prev, error: response.message || 'Processing failed', processingStage: 'error', isLoading: false }));
       }
     } catch (err) {
       console.log("SCREAM 2");
+      await refreshQuota();
       setState(prev => ({ ...prev, error: handleAPIError(err), processingStage: 'error', isLoading: false }));
     }
-  }, [state.uploadedFile]);
+  }, [state.uploadedFile, refreshQuota]);
 
   const runCompletePipeline = useCallback(async () => {
     if (!state.documentId || !state.selectedProblemId || !state.editedLatex.trim()) {
@@ -84,8 +100,8 @@ export const useDocumentState = () => {
       return;
     }
 
-    setState(prev => ({ ...prev, processingStage: 'thinking', isLoading: true, error: null })); // A more descriptive stage
-    
+    setState(prev => ({ ...prev, processingStage: 'thinking', isLoading: true, error: null }));
+
     try {
       const response = await SimpleAPIService.runCompletePipeline({
         document_id: state.documentId,
@@ -96,6 +112,7 @@ export const useDocumentState = () => {
       });
 
       if (response.success) {
+        await refreshQuota();
         setState(prev => ({
           ...prev,
           completePipelineResult: response,
@@ -103,14 +120,16 @@ export const useDocumentState = () => {
           isLoading: false,
         }));
       } else {
-         setState(prev => ({ ...prev, completePipelineResult: response, error: response.message || 'Pipeline failed', processingStage: 'complete', isLoading: false }));
+        await refreshQuota();
+        setState(prev => ({ ...prev, completePipelineResult: response, error: response.message || 'Pipeline failed', processingStage: 'complete', isLoading: false }));
       }
     } catch (err) {
+      await refreshQuota();
       const errorMsg = handleAPIError(err);
       const failedResponse: CompletePipelineResponse = { success: false, message: errorMsg, timestamp: new Date().toISOString(), data: null };
       setState(prev => ({ ...prev, completePipelineResult: failedResponse, error: errorMsg, processingStage: 'complete', isLoading: false }));
     }
-  }, [state.documentId, state.selectedProblemId, state.editedLatex, state.editedVisualContext, state.removeVisualContext]);
+  }, [state.documentId, state.selectedProblemId, state.editedLatex, state.editedVisualContext, state.removeVisualContext, refreshQuota]);
 
   const selectProblem = useCallback((problemId: string | null) => {
     setState(prev => {
@@ -157,7 +176,10 @@ export const useDocumentState = () => {
   }, []);
 
   const startOver = useCallback(() => {
-    setState(initialState);
+    setState(prev => ({
+      ...initialState,
+      quota: prev.quota,
+    }));
   }, []);
 
   // --- MEMOIZED DERIVED STATE ---
@@ -190,6 +212,7 @@ export const useDocumentState = () => {
       restoreSelectedVisualContext,
       startOver,
       cancelUpload: startOver, // Alias for clarity
+      refreshQuota,
     },
   };
 };

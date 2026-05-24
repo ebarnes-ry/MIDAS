@@ -1,115 +1,141 @@
 """
 Vision pipeline API endpoints.
 """
+
 import base64
 import io
+import os
+import tempfile
 import time
-from fastapi import APIRouter, UploadFile, File, Depends, HTTPException, Path, Request
-from slowapi import Limiter
-from slowapi.util import get_remote_address
-
-limiter = Limiter(key_func=get_remote_address)
-from PIL import Image
-from bs4 import BeautifulSoup
 from typing import Optional
 
-from ..models.vision import (
-    DocumentUploadResponse, DocumentUploadData,
-    UserSelectionRequest, VisionAnalysisResponse, VisionAnalysisData,
-    APIDocument, APIBlock, APIProblem
+from bs4 import BeautifulSoup
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
+from PIL import Image
+
+from src.api.limiting import limiter
+from src.api.quota import (
+    require_explain_quota,
+    require_pipeline_quota,
+    require_upload_quota,
 )
-from src.pipeline.vision.types import VisionInput, UserSelection, UIBlock, UIDocument, MathValidationResult, Problem
-# Make sure all necessary models and types are imported
-from ..models.reasoning import ReasoningExplainRequest, ReasoningExplainResponse, ReasoningExplainData
-from ..dependencies.session import get_session_manager, get_model_manager, SessionManager
 from src.models.manager import ModelManager
-from src.pipeline.vision.vision import VisionPipeline
 from src.pipeline.reasoning.reasoning import ReasoningContractError, ReasoningPipeline
 from src.pipeline.reasoning.types import ReasoningInput, ReasoningOutput
-from src.pipeline.verification.verification_orchestrator import VerificationOrchestrator
-from src.pipeline.verification.verification_types import ErrorType, VerificationError, VerificationResult
 from src.pipeline.trajectory import TrajectoryLogger
+from src.pipeline.verification.verification_orchestrator import VerificationOrchestrator
+from src.pipeline.verification.verification_types import (
+    ErrorType,
+    VerificationError,
+    VerificationResult,
+)
+from src.pipeline.vision.types import (
+    MathValidationResult,
+    UIDocument,
+    UIBlock,
+    UserSelection,
+    VisionInput,
+)
+from src.pipeline.vision.vision import VisionPipeline
+
+from ..dependencies.session import (
+    SessionManager,
+    get_model_manager,
+    get_session_manager,
+)
+from ..models.reasoning import (
+    ReasoningExplainData,
+    ReasoningExplainRequest,
+    ReasoningExplainResponse,
+)
+from ..models.vision import (
+    APIDocument,
+    APIBlock,
+    APIProblem,
+    DocumentUploadData,
+    DocumentUploadResponse,
+    UserSelectionRequest,
+)
 
 router = APIRouter()
 
-# The helper functions (convert_ui_block_to_api_block, etc.) remain the same
-def convert_ui_block_to_api_block(ui_block: UIBlock) -> APIBlock:
-    # ... (implementation from previous step)
-    polygon_flat = []
-    if ui_block.polygon:
-        if isinstance(ui_block.polygon[0], (list, tuple)):
-            for point in ui_block.polygon:
-                polygon_flat.extend([float(point[0]), float(point[1])])
-        else:
-            polygon_flat = [float(p) for p in ui_block.polygon]
-    cropped_image = ui_block.images.get('cropped') if ui_block.images else None
-    image_description = None
-    if ui_block.html:
-        soup = BeautifulSoup(ui_block.html, 'html.parser')
-        img_desc_tag = soup.find('p', attrs={'role': 'img'})
-        if img_desc_tag:
-            desc_text = img_desc_tag.get_text(strip=True)
-            if desc_text.lower().startswith('image description:'):
-                image_description = desc_text[18:].strip()
-            else:
-                image_description = desc_text
-    return APIBlock(id=ui_block.id, block_type=ui_block.block_type, html=ui_block.html, polygon=polygon_flat, bbox=ui_block.bbox, is_editable=ui_block.is_editable, latex_content=ui_block.latex_content, cropped_image=cropped_image, image_description=image_description)
+MAX_UPLOAD_BYTES = int(os.getenv("MAX_UPLOAD_BYTES", str(8 * 1024 * 1024)))
+ALLOWED_UPLOAD_TYPES = {"image/png", "image/jpeg"}
 
 
-def _extract_and_crop_image_region(block: UIBlock, original_image: Image.Image) -> Optional[str]:
-    """
-    Extracts the image region for a given block from the original document image.
-    This logic now lives here, in the router, where it belongs.
-    """
+def _extract_image_description(html: Optional[str]) -> Optional[str]:
+    if not html:
+        return None
+
+    soup = BeautifulSoup(html, "html.parser")
+    img_desc_tag = soup.find("p", attrs={"role": "img"})
+
+    if not img_desc_tag:
+        return None
+
+    desc_text = img_desc_tag.get_text(strip=True)
+    prefix = "image description:"
+
+    if desc_text.lower().startswith(prefix):
+        return desc_text[len(prefix):].strip()
+
+    return desc_text
+
+
+def _extract_and_crop_image_region(
+    block: UIBlock,
+    original_image: Image.Image,
+) -> Optional[str]:
     if not original_image or not block.polygon:
         return None
 
     try:
-        # Handle nested polygon format from Marker
-        if block.polygon and isinstance(block.polygon[0], (list, tuple)):
+        if isinstance(block.polygon[0], (list, tuple)):
             flat_polygon = [coord for point in block.polygon for coord in point]
         else:
             flat_polygon = block.polygon
-        
-        if len(flat_polygon) < 8: return None
+
+        if len(flat_polygon) < 8:
+            return None
 
         x_coords = flat_polygon[0::2]
         y_coords = flat_polygon[1::2]
-        
+
         x_min, x_max = min(x_coords), max(x_coords)
         y_min, y_max = min(y_coords), max(y_coords)
-        
+
         img_width, img_height = original_image.size
         bounds = (
             max(0, int(x_min)),
             max(0, int(y_min)),
             min(img_width, int(x_max)),
-            min(img_height, int(y_max))
+            min(img_height, int(y_max)),
         )
-        
-        if bounds[2] > bounds[0] and bounds[3] > bounds[1]:
-            cropped_image = original_image.crop(bounds)
-            
-            buffer = io.BytesIO()
-            cropped_image.save(buffer, format='PNG')
-            return base64.b64encode(buffer.getvalue()).decode('utf-8')
-            
+
+        if bounds[2] <= bounds[0] or bounds[3] <= bounds[1]:
+            return None
+
+        cropped_image = original_image.crop(bounds)
+
+        buffer = io.BytesIO()
+        cropped_image.save(buffer, format="PNG")
+        return base64.b64encode(buffer.getvalue()).decode("utf-8")
+
     except Exception as e:
         print(f"Error extracting image region for block {block.id}: {e}")
-    
-    return None
+        return None
 
 
-def convert_ui_block_to_api_block(ui_block: UIBlock, original_image: Image.Image) -> APIBlock:
-    """
-    Converts internal UIBlock to the APIBlock model sent to the frontend.
-    Now includes the logic to attach a cropped image.
-    """
+def convert_ui_block_to_api_block(
+    ui_block: UIBlock,
+    original_image: Image.Image,
+) -> APIBlock:
     cropped_b64 = None
-    # print("\n\n\n\n\n\n\n\n\n\n\n\n")
-    # print(ui_block.latex_content)
-    # Crop the image only if it's a real figure (has a description) or is misclassified but not editable.
-    if ui_block.block_type.lower() in {'figure', 'picture', 'table', 'diagram'} and not ui_block.is_editable:
+
+    if (
+        ui_block.block_type.lower() in {"figure", "picture", "table", "diagram"}
+        and not ui_block.is_editable
+    ):
         cropped_b64 = _extract_and_crop_image_region(ui_block, original_image)
 
     return APIBlock(
@@ -120,15 +146,21 @@ def convert_ui_block_to_api_block(ui_block: UIBlock, original_image: Image.Image
         bbox=ui_block.bbox,
         is_editable=ui_block.is_editable,
         latex_content=ui_block.latex_content,
-        image_description=ui_block.image_description,
-        cropped_image=cropped_b64 # <-- ATTACH THE CROPPED IMAGE HERE
+        image_description=ui_block.image_description
+        or _extract_image_description(ui_block.html),
+        cropped_image=cropped_b64,
     )
 
 
-def convert_ui_document_to_api_document(ui_document: UIDocument, original_image: Image.Image) -> APIDocument:
-    # Pass the original image to the block converter 
-    api_blocks = [convert_ui_block_to_api_block(block, original_image) for block in ui_document.blocks]
-    
+def convert_ui_document_to_api_document(
+    ui_document: UIDocument,
+    original_image: Image.Image,
+) -> APIDocument:
+    api_blocks = [
+        convert_ui_block_to_api_block(block, original_image)
+        for block in ui_document.blocks
+    ]
+
     api_problems = [
         APIProblem(
             problem_id=p.problem_id,
@@ -139,127 +171,212 @@ def convert_ui_document_to_api_document(ui_document: UIDocument, original_image:
             visual_context_required=(
                 p.problem_type.value == "geometry"
                 or bool(p.figure_references)
-                or any(marker in p.problem_text.lower() for marker in ("figure", "diagram", "graph", "table", "chart", "shown", "below", "above", "image", "picture"))
+                or any(
+                    marker in p.problem_text.lower()
+                    for marker in (
+                        "figure",
+                        "diagram",
+                        "graph",
+                        "table",
+                        "chart",
+                        "shown",
+                        "below",
+                        "above",
+                        "image",
+                        "picture",
+                    )
+                )
             ),
             visual_context_attached=bool(p.referenced_figure_descriptions),
-            visual_context_summary="\n\n".join(p.referenced_figure_descriptions) if p.referenced_figure_descriptions else None,
+            visual_context_summary=(
+                "\n\n".join(p.referenced_figure_descriptions)
+                if p.referenced_figure_descriptions
+                else None
+            ),
             visual_context_description_count=len(p.referenced_figure_descriptions),
             problem_input_complete=p.problem_input_complete,
             missing_problem_content=p.missing_problem_content,
             missing_content_reason=p.missing_content_reason,
             extraction_recovery_source=p.extraction_recovery_source,
-        ) for p in ui_document.problems
+        )
+        for p in ui_document.problems
     ]
 
-    return APIDocument(
-        blocks=api_blocks,
-        problems=api_problems,
-        # The following fields are not on the new APIDocument, which is correct
-        # total_blocks=len(ui_document.blocks),
-        # editable_blocks=sum(1 for b in ui_document.blocks if b.is_editable),
-        # images=ui_document.images,
-        # dimensions=ui_document.dimensions,
-        # metadata=ui_document.metadata
-    )
+    return APIDocument(blocks=api_blocks, problems=api_problems)
 
 
 def image_to_base64(image: Image.Image, format: str = "PNG") -> str:
     buffer = io.BytesIO()
     image.save(buffer, format=format)
-    return base64.b64encode(buffer.getvalue()).decode('utf-8')
+    return base64.b64encode(buffer.getvalue()).decode("utf-8")
+
+
+def _normalize_uploaded_image(file_content: bytes) -> Image.Image:
+    try:
+        raw = Image.open(io.BytesIO(file_content))
+    except Exception as exc:
+        raise HTTPException(
+            status_code=400,
+            detail="Uploaded file is not a valid image.",
+        ) from exc
+
+    if raw.mode in ("RGBA", "LA", "P"):
+        if raw.mode == "P":
+            raw = raw.convert("RGBA")
+
+        background = Image.new("RGB", raw.size, (255, 255, 255))
+        alpha = raw.split()[-1]
+        background.paste(raw, mask=alpha)
+        return background
+
+    return raw.convert("RGB")
+
 
 @router.post("/upload", response_model=DocumentUploadResponse)
-async def upload_document(file: UploadFile = File(...), session_manager: SessionManager = Depends(get_session_manager), model_manager: ModelManager = Depends(get_model_manager)):
+@limiter.limit("6/minute")
+async def upload_document(
+    request: Request,
+    file: UploadFile = File(...),
+    quota=Depends(require_upload_quota),
+    session_manager: SessionManager = Depends(get_session_manager),
+    model_manager: ModelManager = Depends(get_model_manager),
+):
     start_time = time.time()
-    if not file.content_type or not any(file.content_type.startswith(p) for p in ["application/pdf", "image/"]):
-        raise HTTPException(status_code=400, detail=f"Unsupported file type: {file.content_type}.")
+
+    if file.content_type not in ALLOWED_UPLOAD_TYPES:
+        raise HTTPException(
+            status_code=415,
+            detail="Upload must be a PNG or JPEG for this public demo.",
+        )
+
+    tmp_filepath: Optional[str] = None
+
     try:
         file_content = await file.read()
 
-        # Composite any transparent PNG onto a white background before processing.
-        # Without this, PIL's convert("RGB") maps transparent pixels to black, which
-        # inverts the image (black text on white → invisible on black) and causes
-        # Marker's LLM to fail at describing the equation.
-        raw = Image.open(io.BytesIO(file_content))
-        if raw.mode in ('RGBA', 'LA', 'P'):
-            if raw.mode == 'P':
-                raw = raw.convert('RGBA')
-            background = Image.new('RGB', raw.size, (255, 255, 255))
-            alpha = raw.split()[-1]
-            background.paste(raw, mask=alpha)
-            original_image = background
-        else:
-            original_image = raw.convert('RGB')
+        if not file_content:
+            raise HTTPException(status_code=400, detail="Uploaded file is empty.")
 
-        import tempfile, os
+        if len(file_content) > MAX_UPLOAD_BYTES:
+            raise HTTPException(
+                status_code=413,
+                detail="File is too large for the public demo.",
+            )
 
-        # Save the normalised (white-background) image to the temp file so that
-        # Marker also receives the corrected version, not the raw transparent PNG.
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as tmp_file:
-            original_image.save(tmp_file, format='PNG')
+        original_image = _normalize_uploaded_image(file_content)
+
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp_file:
+            original_image.save(tmp_file, format="PNG")
             tmp_filepath = tmp_file.name
 
         print("--- Validating image content ---")
-        validation_response = model_manager.call(task="validation", prompt_ref="vision/validate@v1", variables={}, schema=MathValidationResult, images=[original_image])
-        if not validation_response.parsed or not validation_response.parsed.contains_math:
-            reason = validation_response.parsed.reason if validation_response.parsed else "Could not determine content."
-            os.unlink(tmp_filepath)
-            raise HTTPException(status_code=400, detail=f"Validation Failed: {reason}")
-        print(f"Content validated: {validation_response.parsed.reason}")
-        try:
-            vision_pipeline = VisionPipeline(model_manager)
+        validation_response = model_manager.call(
+            task="validation",
+            prompt_ref="vision/validate@v1",
+            variables={},
+            schema=MathValidationResult,
+            images=[original_image],
+        )
 
-            vision_input = VisionInput(file_path=tmp_filepath, file_type=file.content_type)
-            ui_document = vision_pipeline.process_input(vision_input)
-            
-            original_image_base64 = image_to_base64(original_image)
-            processing_time = time.time() - start_time
-            
-            # === MODIFIED LOGIC: PASS ORIGINAL IMAGE TO CONVERTER ===
-            api_document = convert_ui_document_to_api_document(ui_document, original_image)
-            
-            processing_metadata = { "filename": file.filename, "processing_time": processing_time }
-            document_id = session_manager.create_session(
-                ui_document=ui_document, 
-                original_image_base64=original_image_base64, 
-                processing_metadata=processing_metadata
+        if (
+            not validation_response.parsed
+            or not validation_response.parsed.contains_math
+        ):
+            reason = (
+                validation_response.parsed.reason
+                if validation_response.parsed
+                else "Could not determine content."
             )
-            
-            return DocumentUploadResponse(
-                success=True, message="Document processed successfully",
-                data=DocumentUploadData(
-                    document_id=document_id, 
-                    document=api_document, 
-                    original_image_base64=original_image_base64, 
-                    processing_time=processing_time, 
-                    processing_metadata=processing_metadata
-                )
+            raise HTTPException(
+                status_code=400,
+                detail=f"Validation Failed: {reason}",
             )
-        finally:
-            os.unlink(tmp_filepath)
-    except HTTPException as http_exc:
-        raise http_exc
+
+        print(f"Content validated: {validation_response.parsed.reason}")
+
+        vision_pipeline = VisionPipeline(model_manager)
+        vision_input = VisionInput(
+            file_path=tmp_filepath,
+            file_type=file.content_type,
+        )
+        ui_document = vision_pipeline.process_input(vision_input)
+
+        original_image_base64 = image_to_base64(original_image)
+        processing_time = time.time() - start_time
+        api_document = convert_ui_document_to_api_document(
+            ui_document,
+            original_image,
+        )
+
+        processing_metadata = {
+            "filename": file.filename,
+            "processing_time": processing_time,
+        }
+
+        document_id = session_manager.create_session(
+            ui_document=ui_document,
+            original_image_base64=original_image_base64,
+            processing_metadata=processing_metadata,
+        )
+
+        response = DocumentUploadResponse(
+            success=True,
+            message="Document processed successfully",
+            data=DocumentUploadData(
+                document_id=document_id,
+                document=api_document,
+                original_image_base64=original_image_base64,
+                processing_time=processing_time,
+                processing_metadata=processing_metadata,
+            ),
+        )
+
+        # Pydantic response_model may drop unknown fields, so expose quota through
+        # processing_metadata where the existing response schema already allows it.
+        response.data.processing_metadata["quota"] = quota
+        return response
+
+    except HTTPException:
+        raise
+
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+    finally:
+        if tmp_filepath:
+            try:
+                os.unlink(tmp_filepath)
+            except FileNotFoundError:
+                pass
 
 
 @router.post("/complete")
-@limiter.limit("3/minute;15/hour")
-async def complete_pipeline(request: Request, body: UserSelectionRequest, session_manager: SessionManager = Depends(get_session_manager), model_manager: ModelManager = Depends(get_model_manager)):
+@limiter.limit("2/minute;10/hour")
+async def complete_pipeline(
+    request: Request,
+    body: UserSelectionRequest,
+    quota=Depends(require_pipeline_quota),
+    session_manager: SessionManager = Depends(get_session_manager),
+    model_manager: ModelManager = Depends(get_model_manager),
+):
     full_start_time = time.time()
+
     session = session_manager.get_session(body.document_id)
     if not session:
         raise HTTPException(status_code=404, detail="Document not found or session expired")
 
     try:
         vision_start_time = time.time()
+
         user_selection = UserSelection(
             problem_id=body.problem_id,
             edited_latex=body.edited_latex,
-            original_image_path=""
+            original_image_path="",
         )
+
         image_data = base64.b64decode(session.original_image_base64)
         source_image = Image.open(io.BytesIO(image_data))
+
         vision_pipeline = VisionPipeline(model_manager)
         vision_output = vision_pipeline.process_selection(
             user_selection,
@@ -268,15 +385,28 @@ async def complete_pipeline(request: Request, body: UserSelectionRequest, sessio
             visual_context_override=body.visual_context_override,
             remove_visual_context=body.remove_visual_context,
         )
+
         vision_time = time.time() - vision_start_time
         reasoning_start_time = time.time()
+
         reasoning_pipeline = ReasoningPipeline(model_manager)
-        reasoning_input = ReasoningInput(problem_statement=vision_output.problem_statement, visual_context=vision_output.visual_context.summary if vision_output.visual_context else None, source_metadata=vision_output.source_metadata)
+        reasoning_input = ReasoningInput(
+            problem_statement=vision_output.problem_statement,
+            visual_context=(
+                vision_output.visual_context.summary
+                if vision_output.visual_context
+                else None
+            ),
+            source_metadata=vision_output.source_metadata,
+        )
+
         try:
             reasoning_output = reasoning_pipeline.process(reasoning_input)
+
         except ReasoningContractError as e:
             reasoning_time = time.time() - reasoning_start_time
             total_processing_time = time.time() - full_start_time
+
             synthetic_reasoning = ReasoningOutput(
                 original_problem=vision_output.problem_statement,
                 steps=[],
@@ -291,6 +421,7 @@ async def complete_pipeline(request: Request, body: UserSelectionRequest, sessio
                     "raw_response_length": len(e.raw_output or ""),
                 },
             )
+
             contract_result = VerificationResult(
                 status="failed_contract",
                 confidence_score=0.0,
@@ -311,6 +442,7 @@ async def complete_pipeline(request: Request, body: UserSelectionRequest, sessio
                     "raw_response_length": len(e.raw_output or ""),
                 },
             )
+
             try:
                 logger = TrajectoryLogger(
                     log_path=model_manager.config.get(
@@ -320,7 +452,9 @@ async def complete_pipeline(request: Request, body: UserSelectionRequest, sessio
                 )
                 tid = logger.start_trajectory(
                     problem_statement=vision_output.problem_statement,
-                    problem_type=str(vision_output.source_metadata.get("problem_type", "unknown")),
+                    problem_type=str(
+                        vision_output.source_metadata.get("problem_type", "unknown")
+                    ),
                     problem_source="vision_complete",
                 )
                 logger.log_attempt(
@@ -337,6 +471,7 @@ async def complete_pipeline(request: Request, body: UserSelectionRequest, sessio
                 )
             except Exception as log_error:
                 print(f"Could not log reasoning contract failure trajectory: {log_error}")
+
             contract_metadata = {
                 "contract_failure": True,
                 "contract_source": "reasoning_solve",
@@ -344,6 +479,7 @@ async def complete_pipeline(request: Request, body: UserSelectionRequest, sessio
                 "model": e.model,
                 "raw_response_length": len(e.raw_output or ""),
             }
+
             response_data = {
                 "vision": {
                     "problem_statement": vision_output.problem_statement,
@@ -374,14 +510,16 @@ async def complete_pipeline(request: Request, body: UserSelectionRequest, sessio
                     "status": "failed_contract",
                     "confidence_score": 0.0,
                     "answer_match": None,
-                    "errors": [{
-                        "error_type": "contract_violation",
-                        "message": e.message,
-                        "line_number": None,
-                        "problematic_code": None,
-                        "suggested_fix": None,
-                        "traceback": None,
-                    }],
+                    "errors": [
+                        {
+                            "error_type": "contract_violation",
+                            "message": e.message,
+                            "line_number": None,
+                            "problematic_code": None,
+                            "suggested_fix": None,
+                            "traceback": None,
+                        }
+                    ],
                     "repair_history": [],
                     "step_verifications": [],
                     "metadata": {
@@ -392,21 +530,27 @@ async def complete_pipeline(request: Request, body: UserSelectionRequest, sessio
                 },
                 "total_processing_time": total_processing_time,
             }
+
             return {
                 "success": False,
                 "message": "Reasoning output violated the structured contract",
                 "data": response_data,
+                "quota": quota,
             }
+
         reasoning_time = time.time() - reasoning_start_time
         verification_start_time = time.time()
+
         verification_orchestrator = VerificationOrchestrator(model_manager)
         verification_result, repair_history = verification_orchestrator.verify_with_repair(
             reasoning_output=reasoning_output,
-            max_reasoning_attempts=2
+            max_reasoning_attempts=2,
         )
+
         verification_time = time.time() - verification_start_time
         total_processing_time = time.time() - full_start_time
         final_reasoning = verification_result.reasoning_output
+
         def _step_dict(s):
             return {
                 "step_number": s.step_number,
@@ -418,28 +562,41 @@ async def complete_pipeline(request: Request, body: UserSelectionRequest, sessio
                 "feedback": getattr(s, "feedback", None),
             }
 
-        # Build step-aware repair history: entry 0 = initial attempt, entry N = Nth repair
-        repair_attempts_with_steps = [{
-            "attempt_number": 1,
-            "reasoning_steps": [_step_dict(s) for s in reasoning_output.steps],
-            "final_answer": reasoning_output.final_answer,
-            "verification_status": "initial",
-            "steps_verified": 0,
-            "steps_failed": 0,
-        }]
-        for i, r in enumerate(repair_history):
-            steps = r.repaired_reasoning.steps if r.repaired_reasoning else []
-            repair_attempts_with_steps.append({
-                "attempt_number": i + 2,
-                "reasoning_steps": [_step_dict(s) for s in steps],
-                "final_answer": r.repaired_reasoning.final_answer if r.repaired_reasoning else "",
-                "verification_status": "verified" if r.success else "failed",
+        repair_attempts_with_steps = [
+            {
+                "attempt_number": 1,
+                "reasoning_steps": [_step_dict(s) for s in reasoning_output.steps],
+                "final_answer": reasoning_output.final_answer,
+                "verification_status": "initial",
                 "steps_verified": 0,
                 "steps_failed": 0,
-            })
+            }
+        ]
+
+        for i, r in enumerate(repair_history):
+            steps = r.repaired_reasoning.steps if r.repaired_reasoning else []
+            repair_attempts_with_steps.append(
+                {
+                    "attempt_number": i + 2,
+                    "reasoning_steps": [_step_dict(s) for s in steps],
+                    "final_answer": (
+                        r.repaired_reasoning.final_answer
+                        if r.repaired_reasoning
+                        else ""
+                    ),
+                    "verification_status": "verified" if r.success else "failed",
+                    "steps_verified": 0,
+                    "steps_failed": 0,
+                }
+            )
 
         response_data = {
-            "vision": {"problem_statement": vision_output.problem_statement, "visual_context": vision_output.visual_context, "processing_time": vision_time, "metadata": vision_output.source_metadata},
+            "vision": {
+                "problem_statement": vision_output.problem_statement,
+                "visual_context": vision_output.visual_context,
+                "processing_time": vision_time,
+                "metadata": vision_output.source_metadata,
+            },
             "reasoning": {
                 "original_problem": final_reasoning.original_problem,
                 "steps": [
@@ -481,34 +638,72 @@ async def complete_pipeline(request: Request, body: UserSelectionRequest, sessio
                     for sv in verification_result.step_verifications
                 ],
                 "metadata": {
-                    "reasoning_repair_attempts": len([r for r in repair_history if r.repair_type == "reasoning"]),
-                    "codegen_repair_attempts": len([r for r in repair_history if r.repair_type == "codegen"]),
+                    "reasoning_repair_attempts": len(
+                        [r for r in repair_history if r.repair_type == "reasoning"]
+                    ),
+                    "codegen_repair_attempts": len(
+                        [r for r in repair_history if r.repair_type == "codegen"]
+                    ),
                     **verification_result.metadata,
-                }
+                },
             },
-            "total_processing_time": total_processing_time
+            "total_processing_time": total_processing_time,
         }
-        return {"success": True, "message": "Complete pipeline processing successful", "data": response_data}
+
+        return {
+            "success": True,
+            "message": "Complete pipeline processing successful",
+            "data": response_data,
+            "quota": quota,
+        }
+
+    except HTTPException:
+        raise
+
     except Exception as e:
         import traceback
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"Complete pipeline failed: {str(e)}")
 
-# The /explain endpoint remains the same
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Complete pipeline failed: {str(e)}",
+        ) from e
+
+
 @router.post("/explain", response_model=ReasoningExplainResponse)
-async def explain_step(request: ReasoningExplainRequest, model_manager: ModelManager = Depends(get_model_manager)):
+@limiter.limit("10/minute")
+async def explain_step(
+    request: Request,
+    body: ReasoningExplainRequest,
+    quota=Depends(require_explain_quota),
+    model_manager: ModelManager = Depends(get_model_manager),
+):
     start_time = time.time()
+
     try:
         response = model_manager.call(
             task="explain_step",
             prompt_ref="reasoning/explain_step@v1",
-            variables={"problem_statement": request.problem_statement, "worked_solution": request.worked_solution, "step_text": request.step_text}
+            variables={
+                "problem_statement": body.problem_statement,
+                "worked_solution": body.worked_solution,
+                "step_text": body.step_text,
+            },
         )
+
         processing_time = time.time() - start_time
+
         return ReasoningExplainResponse(
             success=True,
             message="Explanation generated successfully.",
-            data=ReasoningExplainData(explanation=response.content, processing_time=processing_time)
+            data=ReasoningExplainData(
+                explanation=response.content,
+                processing_time=processing_time,
+            ),
         )
+
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to generate explanation: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to generate explanation: {e}",
+        ) from e

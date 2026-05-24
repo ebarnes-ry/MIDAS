@@ -1,5 +1,23 @@
 // midas-frontend/src/types/api.ts
 
+export interface QuotaBucket {
+  limit: number;
+  used: number;
+  remaining: number;
+}
+
+export interface QuotaStatus {
+  enabled: boolean;
+  reset_seconds: number;
+  limits: {
+    upload: QuotaBucket;
+    pipeline: QuotaBucket;
+    reason: QuotaBucket;
+    explain: QuotaBucket;
+    feedback: QuotaBucket;
+  };
+}
+
 export interface APIBlock {
   id: string;
   block_type: string;
@@ -47,6 +65,7 @@ export interface DocumentUploadResponse {
   success: boolean;
   message: string;
   timestamp: string;
+  quota?: QuotaBucket;
   data: {
     document_id: string;
     document: APIDocument;
@@ -131,6 +150,7 @@ export interface CompletePipelineResponse {
   success: boolean;
   message: string;
   timestamp: string;
+  quota?: QuotaBucket;
   data: {
     vision: {
       problem_statement: string;
@@ -189,6 +209,7 @@ export interface DocumentState {
   processingStage: ProcessingStage;
   uploadedFile: File | null;
   completePipelineResult: CompletePipelineResponse | null;
+  quota: QuotaStatus | null;
 }
 
 export interface ReasoningStepResponse {
@@ -212,7 +233,7 @@ export interface FeedbackRequest {
 
 export interface FeedbackResponse {
   success: boolean;
-  data?: { feedback: string };
+  data?: { feedback: string; quota?: QuotaBucket };
   error?: string;
 }
 
@@ -225,6 +246,7 @@ export interface ReasoningExplainRequest {
 export interface ReasoningExplainResponse {
   success: boolean;
   message: string;
+  quota?: QuotaBucket;
   data?: {
     explanation: string;
     processing_time: number;

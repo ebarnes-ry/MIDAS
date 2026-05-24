@@ -19,12 +19,13 @@ export const FullVisionPipeline: React.FC = () => {
     error,
     processingStage,
     completePipelineResult,
+    quota,
     actions,
   } = useDocumentState();
 
   // State 1: idle
   if (processingStage === 'idle') {
-    return <FileUpload onFileSelect={actions.handleFileUpload} error={error} />;
+    return <FileUpload onFileSelect={actions.handleFileUpload} error={error} quota={quota} />;
   }
 
   // State 2: file dropped, not yet OCR'd — show brief preview
@@ -84,6 +85,7 @@ export const FullVisionPipeline: React.FC = () => {
         removeVisualContext={removeVisualContext}
         isLoading={isLoading}
         error={error}
+        quota={quota}
         onSelectProblem={actions.selectProblem}
         onUpdateLatex={actions.updateEditedLatex}
         onUpdateVisualContext={actions.updateEditedVisualContext}
@@ -95,5 +97,5 @@ export const FullVisionPipeline: React.FC = () => {
     );
   }
 
-  return <FileUpload onFileSelect={actions.handleFileUpload} error="An unexpected state occurred. Please start over." />;
+  return <FileUpload onFileSelect={actions.handleFileUpload} error="An unexpected state occurred. Please start over." quota={quota} />;
 };

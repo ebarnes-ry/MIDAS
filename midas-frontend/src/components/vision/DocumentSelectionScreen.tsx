@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { APIDocument } from '../../types/api';
+import { APIDocument, QuotaStatus } from '../../types/api';
 import { FormattedMathText } from '../ui/FormattedMathText';
 
 interface Props {
@@ -11,6 +11,7 @@ interface Props {
   removeVisualContext: boolean;
   isLoading: boolean;
   error: string | null;
+  quota?: QuotaStatus | null;
   onSelectProblem: (id: string | null) => void;
   onUpdateLatex: (latex: string) => void;
   onUpdateVisualContext: (visualContext: string) => void;
@@ -217,6 +218,7 @@ export const DocumentSelectionScreen: React.FC<Props> = ({
   removeVisualContext,
   isLoading,
   error,
+  quota,
   onSelectProblem,
   onUpdateLatex,
   onUpdateVisualContext,
@@ -227,6 +229,9 @@ export const DocumentSelectionScreen: React.FC<Props> = ({
 }) => {
   const hasProblems = document.problems.length > 0;
   const selectedProblem = document.problems.find(p => p.problem_id === selectedProblemId) ?? null;
+  const pipelineQuota = quota?.limits.pipeline;
+  const pipelineBlocked = pipelineQuota?.remaining === 0;
+  const runDisabled = !selectedProblemId || !editedLatex.trim() || isLoading || pipelineBlocked;
 
   const handleRevert = () => {
     if (selectedProblem) onUpdateLatex(selectedProblem.problem_text);
@@ -385,8 +390,15 @@ export const DocumentSelectionScreen: React.FC<Props> = ({
 
         {/* Footer */}
         <div style={{ padding: '16px 32px 20px', borderTop: '1px solid var(--rule)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0, background: 'var(--parchment)' }}>
-          <div style={{ fontSize: 13, fontStyle: 'italic', color: error ? 'var(--failed)' : 'var(--ink-3)', fontFamily: "'Crimson Pro', serif" }}>
-            {error ?? (selectedProblemId ? 'Ready to analyse' : 'Select a problem above')}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <div style={{ fontSize: 13, fontStyle: 'italic', color: error ? 'var(--failed)' : pipelineBlocked ? 'var(--failed)' : 'var(--ink-3)', fontFamily: "'Crimson Pro', serif" }}>
+              {error ?? (pipelineBlocked ? 'Pipeline run limit reached for today' : selectedProblemId ? 'Ready to analyse' : 'Select a problem above')}
+            </div>
+            {pipelineQuota && (
+              <div style={{ fontSize: 11.5, fontFamily: "'JetBrains Mono', monospace", color: pipelineBlocked ? 'var(--failed)' : 'var(--ink-3)' }}>
+                Pipeline runs remaining today: {pipelineQuota.remaining} / {pipelineQuota.limit}
+              </div>
+            )}
           </div>
           <div style={{ display: 'flex', gap: 10 }}>
             <button
@@ -397,10 +409,10 @@ export const DocumentSelectionScreen: React.FC<Props> = ({
             </button>
             <button
               onClick={onRunPipeline}
-              disabled={!selectedProblemId || !editedLatex.trim() || isLoading}
-              style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 12, padding: '10px 28px', borderRadius: 5, cursor: (!selectedProblemId || isLoading) ? 'not-allowed' : 'pointer', border: '1px solid var(--accent)', background: (!selectedProblemId || isLoading) ? 'var(--rule)' : 'var(--accent)', color: (!selectedProblemId || isLoading) ? 'var(--ink-3)' : 'white', letterSpacing: '0.04em' }}
+              disabled={runDisabled}
+              style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 12, padding: '10px 28px', borderRadius: 5, cursor: runDisabled ? 'not-allowed' : 'pointer', border: '1px solid var(--accent)', background: runDisabled ? 'var(--rule)' : 'var(--accent)', color: runDisabled ? 'var(--ink-3)' : 'white', letterSpacing: '0.04em' }}
             >
-              {isLoading ? 'Processing…' : 'Analyse selected →'}
+              {isLoading ? 'Processing…' : pipelineBlocked ? 'Daily limit reached' : 'Analyse selected →'}
             </button>
           </div>
         </div>
