@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react';
 import { MathJax } from 'better-react-mathjax';
 import { MathErrorBoundary } from '../vision/VisionErrorBoundary';
-import { looksLikeHTML, normalizeDollarDelimiters, normalizeEscapedTeX } from './mathml';
+import { looksLikeHTML, normalizeMathForRendering } from './mathml';
 
 interface FormattedMathTextProps {
   content: string;
@@ -58,10 +58,10 @@ export const FormattedMathText: React.FC<FormattedMathTextProps> = ({
       const isDisplayMath =
         trimmed.startsWith('$$') && trimmed.endsWith('$$') && trimmed.length > 4;
 
-      const normalized = normalizeEscapedTeX(trimmed);
+      const normalized = normalizeMathForRendering(trimmed);
       const encoded = looksLikeHTML(normalized)
         ? sanitizeHTML(normalized)
-        : encodeForDOM(normalizeDollarDelimiters(normalized));
+        : encodeForDOM(normalized);
 
       const style = [
         `padding-left:${isDisplayMath ? 0 : paddingLeft}px`,

@@ -1,4 +1,4 @@
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Tuple
 import json
 import re
 
@@ -65,7 +65,7 @@ class VerificationPipeline:
                 exception_traceback=str(e),
             )
             print("Generated code violated the codegen contract. Attempting repair...")
-            return self._handle_codegen_fault(
+            result = self._handle_codegen_fault(
                 e.code,
                 exec_result,
                 reasoning,
@@ -73,8 +73,9 @@ class VerificationPipeline:
                 fault_error_type=fault_error_type,
                 fault_category=e.category,
             )
+            return self._apply_unsupported_boundary_after_failure(reasoning, result)
         except Exception as e:
-            return self._create_failure_result(
+            result = self._create_failure_result(
                 reasoning,
                 f"Initial code generation failed: {e}",
                 generated_code="",
@@ -82,6 +83,7 @@ class VerificationPipeline:
                 error_type=ErrorType.RUNTIME_ERROR,
                 metadata={"codegen_failure": True},
             )
+            return self._apply_unsupported_boundary_after_failure(reasoning, result)
 
         # --- 2. EXECUTE THE CODE ---
         execution_result = self.executor.execute(code)
@@ -101,7 +103,7 @@ class VerificationPipeline:
                     execution_result=execution_result,
                 )
             print("Execution failed. Diagnosed as CODEGEN FAULT. Attempting repair...")
-            return self._handle_codegen_fault(
+            result = self._handle_codegen_fault(
                 code,
                 execution_result,
                 reasoning,
@@ -109,6 +111,7 @@ class VerificationPipeline:
                 fault_error_type=self._error_type_for_execution(execution_result),
                 fault_category=self._fault_category_for_execution(execution_result),
             )
+            return self._apply_unsupported_boundary_after_failure(reasoning, result)
 
         # --- 4. PARSE THE OUTPUT (CONTRACT ADHERENCE) ---
         expected_step_numbers = self._expected_step_numbers(reasoning)
@@ -120,7 +123,7 @@ class VerificationPipeline:
         if parsing_error:
             # Output did not adhere to the JSON contract. This is a CODEGEN FAULT.
             print(f"Parsing failed due to contract violation: {parsing_error}. Attempting repair...")
-            return self._handle_codegen_fault(
+            result = self._handle_codegen_fault(
                 code,
                 execution_result,
                 reasoning,
@@ -129,11 +132,12 @@ class VerificationPipeline:
                 fault_error_type=ErrorType.CONTRACT_VIOLATION,
                 fault_category="output_contract",
             )
+            return self._apply_unsupported_boundary_after_failure(reasoning, result)
 
         if not final_verdict:
             # Contract violation: missing the final verdict JSON. This is a CODEGEN FAULT.
             print("Missing final verdict. Attempting contract repair...")
-            return self._handle_codegen_fault(
+            result = self._handle_codegen_fault(
                 code,
                 execution_result,
                 reasoning,
@@ -142,6 +146,7 @@ class VerificationPipeline:
                 fault_error_type=ErrorType.CONTRACT_VIOLATION,
                 fault_category="missing_final_verdict",
             )
+            return self._apply_unsupported_boundary_after_failure(reasoning, result)
 
         # --- 5. CHECK VERIFICATION RESULTS ---
         all_steps_ok = all(s.verified for s in steps)
@@ -460,31 +465,73 @@ Return raw Python only. No markdown fences. Do not change the underlying mathema
                 },
             )
 
+        return None
+
+    def _unsupported_boundary_reason(self, reasoning: ReasoningOutput) -> Optional[Tuple[str, str]]:
+        metadata = getattr(reasoning, "processing_metadata", {}) or {}
+        problem_type = str(metadata.get("problem_type") or "unknown").lower()
+        problem_text = f"{reasoning.original_problem}\n{reasoning.worked_solution}".lower()
+
         if self._is_abstract_proof_boundary(problem_type, problem_text):
-            return self._create_unsupported_boundary_result(
-                reasoning,
-                problem_type,
+            return (
                 "abstract_proof_verification_boundary",
                 "This solution is proof-oriented, and the current SymPy verifier cannot reliably check abstract proof obligations.",
             )
 
         if self._is_geometry_boundary(problem_type, problem_text):
-            return self._create_unsupported_boundary_result(
-                reasoning,
-                problem_type,
+            return (
                 "geometry_symbolic_verification_boundary",
                 "This problem is geometry-oriented; the current SymPy verifier cannot reliably validate diagram/theorem-based geometry reasoning.",
             )
 
         if self._is_advanced_analysis_boundary(problem_type, problem_text):
-            return self._create_unsupported_boundary_result(
-                reasoning,
-                problem_type,
+            return (
                 "advanced_analysis_verification_boundary",
                 "This problem appears to require advanced analysis reasoning beyond the current symbolic verifier boundary.",
             )
 
         return None
+
+    def _apply_unsupported_boundary_after_failure(
+        self,
+        reasoning: ReasoningOutput,
+        result: VerificationResult,
+    ) -> VerificationResult:
+        if result.status in {
+            VerificationStatus.VERIFIED,
+            VerificationStatus.FAILED_REASONING,
+            VerificationStatus.NEEDS_VISUAL_CONTEXT,
+            VerificationStatus.UNSUPPORTED,
+        }:
+            return result
+
+        boundary = self._unsupported_boundary_reason(reasoning)
+        if boundary is None:
+            return result
+
+        reason, message = boundary
+        metadata = getattr(reasoning, "processing_metadata", {}) or {}
+        underlying_metadata = dict(result.metadata or {})
+        return self._create_failure_result(
+            reasoning,
+            message,
+            generated_code=result.generated_code,
+            status=VerificationStatus.UNSUPPORTED,
+            error_type=ErrorType.SYMBOLIC_FAILURE,
+            metadata={
+                **underlying_metadata,
+                "unsupported": True,
+                "unsupported_source": "post_verification_failure_boundary",
+                "unsupported_reason": reason,
+                "problem_type": str(metadata.get("problem_type") or "unknown").lower(),
+                "verification_boundary": reason,
+                "underlying_verification_status": result.status,
+                "underlying_error_type": result.errors[0].error_type.value if result.errors else None,
+                "visual_context_required": bool(metadata.get("visual_context_required")),
+                "visual_context_attached": bool(metadata.get("visual_context_attached")),
+            },
+            execution_result=result.execution_result,
+        )
 
     def _create_unsupported_boundary_result(
         self,

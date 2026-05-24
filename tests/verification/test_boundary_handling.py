@@ -5,6 +5,7 @@ from PIL import Image
 
 from src.pipeline.reasoning.types import ReasoningOutput, ReasoningStep
 from src.pipeline.verification.verification import VerificationPipeline
+from src.pipeline.verification.verification_types import CodeExecutionResult
 from src.pipeline.vision.types import Problem, ProblemType, UIDocument, UIBlock, UserSelection
 from src.pipeline.vision.vision import VisionPipeline
 from src.api.routers.vision import convert_ui_document_to_api_document
@@ -63,9 +64,18 @@ def test_missing_visual_context_returns_needs_visual_context_before_codegen():
     pipeline.code_generator.generate.assert_not_called()
 
 
-def test_abstract_proof_returns_unsupported_before_codegen():
+def test_abstract_proof_can_verify_when_symbolic_verification_succeeds():
     pipeline = VerificationPipeline(_manager())
-    pipeline.code_generator.generate = Mock()
+    pipeline.code_generator.generate = Mock(return_value=("test_code", {}))
+    pipeline.executor.execute = Mock(
+        return_value=CodeExecutionResult(
+            success=True,
+            stdout='{"step": 1, "description": "Check", "verified": true, "note": "ok"}\n'
+                   '{"final_answer_verified": true, "answer": "", "note": "ok"}\n',
+            stderr="",
+            execution_time=0.01,
+        )
+    )
     reasoning = _reasoning(
         "Prove that there are infinitely many primes.",
         metadata={
@@ -77,14 +87,24 @@ def test_abstract_proof_returns_unsupported_before_codegen():
 
     result = pipeline.verify(reasoning)
 
-    assert result.status == "unsupported"
-    assert result.metadata["unsupported_reason"] == "abstract_proof_verification_boundary"
-    pipeline.code_generator.generate.assert_not_called()
+    assert result.status == "verified"
+    pipeline.code_generator.generate.assert_called_once()
 
 
-def test_geometry_with_visual_context_is_marked_unsupported_not_codegen_failure():
+def test_geometry_with_visual_context_attempts_verification_then_marks_codegen_failure_unsupported():
     pipeline = VerificationPipeline(_manager())
-    pipeline.code_generator.generate = Mock()
+    pipeline.code_generator.generate = Mock(return_value=("x = undefined_variable", {}))
+    pipeline.executor.execute = Mock(
+        return_value=CodeExecutionResult(
+            success=False,
+            stdout="",
+            stderr="NameError: name 'undefined_variable' is not defined",
+            execution_time=0.01,
+            exception_type="NameError",
+            exception_message="name 'undefined_variable' is not defined",
+        )
+    )
+    pipeline._get_repaired_code = Mock(side_effect=ValueError("Repair did not produce code."))
     reasoning = _reasoning(
         "In the triangle shown, find the missing angle.",
         metadata={
@@ -98,8 +118,10 @@ def test_geometry_with_visual_context_is_marked_unsupported_not_codegen_failure(
 
     assert result.status == "unsupported"
     assert result.metadata["unsupported_reason"] == "geometry_symbolic_verification_boundary"
+    assert result.metadata["unsupported_source"] == "post_verification_failure_boundary"
+    assert result.metadata["underlying_verification_status"] == "failed_codegen"
     assert result.metadata["visual_context_attached"] is True
-    pipeline.code_generator.generate.assert_not_called()
+    pipeline.code_generator.generate.assert_called_once()
 
 
 def test_simple_algebra_still_reaches_codegen():

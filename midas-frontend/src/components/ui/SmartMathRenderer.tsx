@@ -1,7 +1,7 @@
 import React from 'react';
 import { MathJax } from 'better-react-mathjax';
 import { MathErrorBoundary } from '../vision/VisionErrorBoundary';
-import { ensureDelimiters, looksLikeHTML, normalizeDollarDelimiters } from './mathml';
+import { looksLikeHTML, normalizeMathForRendering } from './mathml';
 
 interface SmartMathRendererProps {
   content: string;
@@ -39,11 +39,11 @@ const encodeForDOM = (text: string): string =>
 export const SmartMathRenderer: React.FC<SmartMathRendererProps> = ({ content, mathOnly = false }) => {
   if (!content) return null;
 
-  const normalizedContent = mathOnly ? ensureDelimiters(content) : content;
+  const normalizedContent = normalizeMathForRendering(content, mathOnly);
 
   const html = looksLikeHTML(normalizedContent)
     ? sanitizeHTML(normalizedContent)
-    : encodeForDOM(normalizeDollarDelimiters(normalizedContent));
+    : encodeForDOM(normalizedContent);
 
   return (
     <MathErrorBoundary>

@@ -1,4 +1,9 @@
-import { ensureDelimiters, normalizeDollarDelimiters, normalizeEscapedTeX } from './mathml';
+import {
+  ensureDelimiters,
+  normalizeDollarDelimiters,
+  normalizeEscapedTeX,
+  normalizeMathForRendering,
+} from './mathml';
 
 describe('mathml helpers', () => {
   it('normalizes doubled TeX delimiters and commands from model output', () => {
@@ -23,5 +28,18 @@ describe('mathml helpers', () => {
     const input = String.raw`a + b \\ c + d`;
 
     expect(normalizeEscapedTeX(input)).toBe(input);
+  });
+
+  it('wraps standalone raw TeX from uploaded problem text for rendering', () => {
+    const input = String.raw`\int_0^2 (3x^{2} - 2x + 1)\, dx`;
+
+    expect(normalizeMathForRendering(input))
+      .toBe(String.raw`$$ \int_0^2 (3x^{2} - 2x + 1)\, dx $$`);
+  });
+
+  it('does not wrap prose that contains ordinary math text', () => {
+    const input = 'Solve x + 1 = 2.';
+
+    expect(normalizeMathForRendering(input)).toBe(input);
   });
 });

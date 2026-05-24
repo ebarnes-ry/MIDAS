@@ -17,12 +17,53 @@ export const normalizeEscapedTeX = (text: string): string =>
 export const hasTeXDelimiters = (s: string) =>
   /^\s*(\$\$[\s\S]*\$\$|\$[\s\S]*\$|\\\[([\s\S]*)\\\]|\\\(([\s\S]*)\\\))\s*$/.test(normalizeEscapedTeX(s));
 
+const PROSE_WORD_ALLOWLIST = new Set([
+  'dx',
+  'dy',
+  'dt',
+  'du',
+  'dv',
+  'sin',
+  'cos',
+  'tan',
+  'sec',
+  'csc',
+  'cot',
+  'log',
+  'ln',
+  'lim',
+  'det',
+]);
+
+export const looksLikeStandaloneTeX = (s: string): boolean => {
+  const t = normalizeEscapedTeX(s).trim();
+  if (!t || looksLikeHTML(t) || hasTeXDelimiters(t)) return false;
+
+  const startsWithCommand = /^\\[A-Za-z]+/.test(t);
+  const hasMathSyntax = /\\[A-Za-z]+|[=^_]|\\begin\{/.test(t);
+  if (!startsWithCommand && !hasMathSyntax) return false;
+
+  const proseWords = (t.replace(/\\[A-Za-z]+/g, ' ').match(/[A-Za-z]{2,}/g) ?? [])
+    .map(word => word.toLowerCase())
+    .filter(word => !PROSE_WORD_ALLOWLIST.has(word));
+
+  return startsWithCommand || proseWords.length === 0;
+};
+
 export const ensureDelimiters = (s: string) => {
   const t = normalizeEscapedTeX(s).trim();
   if (!t) return t;
   if (hasTeXDelimiters(t)) return t;
-  const display = t.includes('\n') || /\\begin|\\frac|=/.test(t);
+  const display = t.includes('\n') || /\\begin|\\frac|\\int|\\lim|=/.test(t);
   return display ? `$$ ${t} $$` : `\\(${t}\\)`;
+};
+
+export const normalizeMathForRendering = (text: string, mathOnly = false): string => {
+  const normalized = normalizeEscapedTeX(text);
+  if (mathOnly || looksLikeStandaloneTeX(normalized)) {
+    return ensureDelimiters(normalized);
+  }
+  return normalizeDollarDelimiters(normalized);
 };
 
 /**
