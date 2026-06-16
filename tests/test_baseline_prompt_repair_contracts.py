@@ -96,6 +96,33 @@ def test_reasoning_pipeline_can_use_balanced_boxed_answer_helper():
     assert output.final_answer == "\\frac{3}{5}"
 
 
+def test_reasoning_output_accepts_legacy_worked_solution_constructor():
+    output = ReasoningOutput(
+        original_problem="x + 1 = 2",
+        worked_solution="Subtract 1 from both sides, so x = 1.",
+        final_answer="1",
+        think_reasoning="",
+    )
+
+    assert len(output.steps) == 1
+    assert output.steps[0].claim == "Subtract 1 from both sides, so x = 1."
+    assert output.worked_solution == "1. Subtract 1 from both sides, so x = 1.\n   (legacy worked_solution input)"
+
+
+def test_reasoning_output_prefers_typed_steps_over_legacy_worked_solution():
+    output = ReasoningOutput(
+        original_problem="x + 1 = 2",
+        steps=[ReasoningStep(step_number=1, claim="x = 1", justification="subtract 1")],
+        worked_solution="legacy text",
+        final_answer="1",
+        think_reasoning="",
+    )
+
+    assert len(output.steps) == 1
+    assert output.steps[0].claim == "x = 1"
+    assert "legacy text" not in output.worked_solution
+
+
 def test_semantic_grouper_uses_configured_prompt_ref():
     manager = RecordingManager(
         {"tasks": {"group_problems": {"prompt_ref": "vision/group_problems@custom"}}},

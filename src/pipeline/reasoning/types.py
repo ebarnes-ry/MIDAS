@@ -32,13 +32,42 @@ class ReasoningInput:
     source_metadata: Optional[Dict[str, Any]] = None
 
 
-@dataclass
+@dataclass(init=False)
 class ReasoningOutput:
     original_problem: str
     steps: List[ReasoningStep]
     final_answer: str
     think_reasoning: str
     processing_metadata: Dict[str, Any] = field(default_factory=dict)
+
+    def __init__(
+        self,
+        original_problem: str,
+        steps: Optional[List[ReasoningStep]] = None,
+        final_answer: str = "",
+        think_reasoning: str = "",
+        processing_metadata: Optional[Dict[str, Any]] = None,
+        worked_solution: Optional[str] = None,
+    ):
+        self.original_problem = original_problem
+        if steps is None:
+            steps = self._steps_from_legacy_worked_solution(worked_solution)
+        self.steps = steps
+        self.final_answer = final_answer
+        self.think_reasoning = think_reasoning
+        self.processing_metadata = processing_metadata or {}
+
+    @staticmethod
+    def _steps_from_legacy_worked_solution(worked_solution: Optional[str]) -> List[ReasoningStep]:
+        if not worked_solution:
+            return []
+        return [
+            ReasoningStep(
+                step_number=1,
+                claim=worked_solution,
+                justification="legacy worked_solution input",
+            )
+        ]
 
     @property
     def worked_solution(self) -> str:
